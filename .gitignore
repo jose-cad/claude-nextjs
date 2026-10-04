@@ -1,0 +1,4 @@
+arquivos/
+.env
+.env.*
+!.env.example
