@@ -2,125 +2,129 @@
 
 > **Para agentes:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para executar este plano tarefa por tarefa. Os passos usam checkbox (`- [ ]`) para acompanhamento.
 
-**Objetivo:** catálogo dos filmes da Netflix Brasil com contas individuais e listas "Quero assistir" e "Favoritos", rodando em Docker.
+**Objetivo:** catálogo público dos filmes da Netflix Brasil, com listas "Quero assistir" e "Favoritos" para quem cria conta, publicado no Vercel com Supabase.
 
-**Arquitetura:** um app Next.js (App Router) faz as telas (React + Tailwind) e o servidor (rotas `/api/*` em TypeScript). O servidor guarda o token do TMDB, faz a autenticação com Better Auth e mantém um cache em memória das respostas do TMDB. O PostgreSQL guarda contas e listas, acessado via Drizzle. Em desenvolvimento, o Mailpit captura os e-mails.
+**Arquitetura:** um app Next.js (App Router) no Vercel, com telas em React + Tailwind e rotas `/api/*` em TypeScript. Só o servidor fala com o TMDB, e as respostas ficam no cache de dados do Next.js. Login e banco são do Supabase: Auth com e-mail e senha, e Postgres com RLS. Em desenvolvimento e nos testes, o Supabase roda localmente em Docker (`supabase start`).
 
-**Stack (versões verificadas em 2026-10-04):** Next.js 16 · React 19 · TypeScript · Tailwind CSS 4 · Better Auth 1.7 · Drizzle ORM 0.45 / drizzle-kit 0.31 · PostgreSQL 17 · Zod 4 · Nodemailer 10 · Vitest 5 · Playwright 1.63 · Node 22 · Docker Compose.
+**Stack (versões verificadas em 2026-10-04):** Next.js 16 · React 19 · TypeScript · Tailwind CSS 4 · `@supabase/supabase-js` 2.117 · `@supabase/ssr` 0.12 · Supabase CLI 2.119 · Zod 4 · Vitest 5 · Playwright 1.63 · Node 22.
 
 **Spec:** `docs/superpowers/specs/2026-10-03-claude-nextjs-design.md`. Leia junto com este plano.
 
 ## Restrições globais
 
-- **Node desta máquina:** o atalho `~/.local/bin/node` entra em loop e trava. **Todo terminal usado neste plano começa com** `export PATH="$HOME/.nvm/versions/node/v22.23.3/bin:$PATH"`.
-- **Portas (a 5432 já está ocupada por outro projeto):** banco de desenvolvimento em `127.0.0.1:5442`, banco de testes em `127.0.0.1:5443`, Mailpit em `1025` (SMTP) e `8025` (web), app em `3000`, app dos testes E2E em `3100`, TMDB simulado em `4010`.
-- **Catálogo:** região `BR`, só filmes, Netflix com monetização `flatrate`. Os IDs de provedor vêm de `NETFLIX_PROVIDER_IDS`.
+- **Fluxo git (vale para toda tarefa):**
+  - comece com `git switch main && git pull && git switch -c tarefa-NN-slug`;
+  - faça commits pequenos durante a tarefa;
+  - termine com `git push -u origin tarefa-NN-slug` e `gh pr create`;
+  - **nunca faça push na `main`**;
+  - depois de criar o PR, **pare e espere o usuário fazer "Squash and merge"**. Só então comece a tarefa seguinte.
+- **Mensagens de commit:** terminam com a linha `Co-Authored-By:` do modelo que fez o commit, conforme a instrução de atribuição do harness. Descrições de PR terminam com `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
+- **Supabase local:** precisa do Docker rodando. Sobe com `npx supabase start`. As portas são API `54321`, banco `54322`, painel (Studio) `54323` e caixa de e-mails de teste `54324`.
+- **Outras portas:** app `3000` em desenvolvimento, app dos testes E2E `3100`, TMDB simulado `4010`.
+- **Use sempre `localhost`**, nunca `127.0.0.1`, nas URLs do app e do Supabase local (os cookies dependem do nome do host).
+- **Catálogo:** região `BR`, só filmes, Netflix com `flatrate`. Os IDs de provedor vêm de `NETFLIX_PROVIDER_IDS`.
 - **Textos exatos da interface (pt-BR):**
   - `E-mail ou senha incorretos.`
+  - `Este e-mail já tem conta.`
   - `Sem conexão. Verifique sua internet.`
   - `O serviço de filmes está indisponível no momento. Suas listas continuam funcionando normalmente.`
   - `Nenhum filme encontrado.`
   - `Se o e-mail existir, enviamos o link.`
   - `Não foi possível salvar. Tente de novo.`
-- **Token do TMDB só no servidor:** `src/lib/tmdb/index.ts` e `src/lib/auth.ts` começam com `import "server-only";`. Arquivos `"use client"` só fazem `import type` de `src/lib/tmdb/types`.
-- **Sessão:** `expiresIn = 604800` (7 dias) e `updateAge = 86400`, ou seja, renovada a cada uso, no máximo uma vez por dia.
-- **Login obrigatório:** vale para todas as páginas do app e todas as rotas `/api/*`, exceto `/api/auth/*`.
+  - `Link inválido ou expirado.`
+- **Token do TMDB só no servidor:** `src/lib/tmdb/index.ts` e `src/lib/supabase/server.ts` começam com `import "server-only";`. Arquivos `"use client"` só fazem `import type` de `src/lib/tmdb/types`.
+- **Supabase:** o app usa só a chave pública (`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`). **A chave `service_role` nunca entra no código.**
 - **A nota nunca aparece na tela.** Serve só para ordenar.
-- **O modal nunca altera a posição de rolagem** da tela de baixo.
-- **A navegação fica sempre visível:** barra inferior fixa no celular e barra superior fixa (`h-14`) no notebook.
-- **Busca:** com texto na busca, os seletores de gênero e de ordenação ficam desativados, porque a busca do TMDB não aceita esses filtros.
-- **Segredos:** ficam só em `.env`, que está fora do git. O `.env.example` traz só nomes e valores de exemplo.
-- **O TMDB é sempre simulado nos testes.** Nenhum teste chama a API real.
-- **Ao fim de cada tarefa:** commit e `git push`. A mensagem de commit termina com `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
+- **Nenhum modal altera a posição de rolagem** da tela de baixo.
+- **Navegação sempre visível:** barra inferior fixa no celular e barra superior fixa (`h-14`) no notebook.
+- **Busca:** com texto na busca, os seletores de gênero e de ordenação ficam desativados.
+- **Segredos:** ficam em `.env`, que está fora do git, e nas variáveis do Vercel. O `.env.example` traz só os nomes.
+- **O TMDB é sempre simulado nos testes.**
 
 ## Foco de revisão
 
-1. **Botão "voltar" do celular com o modal aberto:** fecha o modal e mantém a posição, sem sair do catálogo. Teste na Tarefa 6.
-2. **Toque duplo rápido em "Quero assistir" / "Favorito":** nunca duplica nem deixa um estado inconsistente. Testes nas Tarefas 7 (inserção concorrente) e 8 (bloqueio enquanto a ação está pendente).
-3. **Filmes repetidos entre páginas da rolagem infinita** (o TMDB reordena por popularidade entre uma página e outra): sem duplicatas na grade. Teste na Tarefa 5 (`mergeUnique`).
-4. **Filme sem pôster, sinopse, duração ou trailer:** o card mostra o título no lugar do pôster e o modal não exibe campos vazios. Testes nas Tarefas 4 (conversão) e 6 (E2E).
-5. **Parâmetro `volta` malicioso** (`//site-externo.com`) no login: redireciona só para caminhos internos. Teste na Tarefa 3 (`safeReturnPath`).
+1. **Botão "voltar" com dois modais abertos** (detalhes + login): fecha só o de cima e mantém a posição. Teste na Tarefa 7.
+2. **Toque duplo rápido em "Quero assistir" / "Favorito":** nunca duplica nem deixa um estado inconsistente. Testes nas Tarefas 6 (inserção concorrente no banco) e 7 (bloqueio enquanto a ação está pendente).
+3. **Filmes repetidos entre páginas da rolagem infinita:** sem duplicatas na grade. Teste na Tarefa 3 (`mergeUnique`).
+4. **Filme sem pôster, sinopse, duração ou trailer:** o card mostra o título no lugar do pôster e o modal não exibe campos vazios. Testes nas Tarefas 2 (conversão) e 4 (E2E).
+5. **Sessão perdida ao salvar** (cookie apagado ou expirado com a tela ainda achando que está logada): o modal de login abre e, depois de entrar, o filme é salvo. Teste na Tarefa 7.
 
-## Desvio consciente da spec
+## Ações manuais do usuário (com o momento de cada uma)
 
-**Créditos TMDB/JustWatch:** com rolagem infinita, um rodapé no fim do catálogo nunca é alcançado. Por isso os créditos ficam no rodapé das telas de login/cadastro e na tela **Conta** (Tarefa 10).
+| Tarefa | Ação |
+|---|---|
+| 1 | Criar conta no Vercel com o GitHub e importar o repositório `jose-cad/claude-nextjs` |
+| 2 | Criar conta no TMDB e gerar o **Token de Leitura da API** |
+| 3 | Cadastrar `TMDB_API_TOKEN` e `NETFLIX_PROVIDER_IDS` nas variáveis do Vercel |
+| 5 | Criar o projeto Supabase na nuvem, configurar o Auth e cadastrar as variáveis do Supabase no Vercel |
+| 6 | Rodar `npx supabase login` e `npx supabase link` para levar a tabela para a nuvem |
 
 ## Mapa de arquivos
 
 ```
-docker-compose.yml            # db (+ app na Tarefa 10)
-docker-compose.override.yml   # só desenvolvimento: mailpit, db-test
-Dockerfile, .dockerignore     # Tarefa 10
 .env.example
-drizzle.config.ts
-drizzle/                      # migrações geradas
-vitest.config.ts              # testes unitários
-vitest.integration.config.ts  # testes com Postgres real
-playwright.config.ts          # E2E
+supabase/config.toml, supabase/templates/recovery.html
+supabase/migrations/<timestamp>_list_items.sql
+vitest.config.ts, vitest.integration.config.ts, playwright.config.ts
 src/
-  instrumentation.ts          # roda migrações ao subir o servidor
-  lib/
-    env.ts                    # validação do .env (lazy)
-    return-path.ts            # safeReturnPath
-    images.ts                 # URLs de pôster
-    format.ts                 # formatRuntime
-    infinite.ts               # nextPage, mergeUnique, withPageParam
-    api-client.ts             # fetch do navegador + mensagens de erro
-    mailer.ts                 # SMTP
-    auth.ts                   # Better Auth (servidor)
-    auth-client.ts            # Better Auth (navegador)
-    session.ts                # sessão em páginas e rotas
-    api/params.ts             # leitura de query params (pura)
-    api/http.ts               # withUser, jsonError
-    db/schema.ts, db/index.ts, db/migrate.ts
-    netflix.ts                # isOnNetflix
-    tmdb/types.ts, tmdb/client.ts, tmdb/cache.ts, tmdb/movies.ts, tmdb/index.ts
-    lists/types.ts, lists/service.ts, lists/validation.ts, lists/toggle.ts
-  hooks/useDebouncedValue.ts, hooks/useInfiniteMovies.ts
-  components/
-    TextField.tsx, NavBar.tsx, Credits.tsx, StatusMessage.tsx
-    NetflixBadge.tsx, MovieCard.tsx, MovieGrid.tsx, InfiniteSentinel.tsx
-    CatalogToolbar.tsx, CatalogView.tsx, MovieModal.tsx
-    lists/ListsProvider.tsx, lists/ListButtons.tsx, lists/ListsView.tsx
+  proxy.ts                     # renova a sessão do Supabase a cada requisição
   app/
     layout.tsx, globals.css
-    (auth)/layout.tsx
-    (auth)/entrar/page.tsx + LoginForm.tsx
-    (auth)/criar-conta/page.tsx + SignUpForm.tsx
-    (auth)/esqueci-senha/page.tsx + ForgotPasswordForm.tsx
-    (auth)/redefinir-senha/page.tsx + ResetPasswordForm.tsx
-    (app)/layout.tsx, (app)/page.tsx, (app)/listas/page.tsx
-    (app)/conta/page.tsx + SignOutButton.tsx
-    api/auth/[...all]/route.ts
-    api/catalogo/route.ts, api/busca/route.ts, api/generos/route.ts
-    api/filmes/[id]/route.ts
+    page.tsx                   # catálogo
+    listas/page.tsx, conta/page.tsx, redefinir-senha/page.tsx
+    auth/confirmar/route.ts    # link do e-mail de recuperação
+    api/catalogo/route.ts, api/busca/route.ts, api/generos/route.ts, api/filmes/[id]/route.ts
     api/listas/route.ts, api/listas/[movieId]/route.ts
+  lib/
+    env.ts, return-path.ts, images.ts, format.ts, infinite.ts, api-client.ts
+    auth-messages.ts, modal-stack.ts
+    api/params.ts, api/http.ts
+    netflix.ts
+    tmdb/types.ts, tmdb/client.ts, tmdb/movies.ts, tmdb/index.ts
+    supabase/env.ts, supabase/server.ts, supabase/client.ts, supabase/database.types.ts
+    lists/types.ts, lists/service.ts, lists/validation.ts, lists/toggle.ts
+  hooks/
+    useDebouncedValue.ts, useInfiniteMovies.ts, useBackToClose.ts, useScrollLock.ts
+  components/
+    NavBar.tsx, TextField.tsx, Credits.tsx, StatusMessage.tsx, Dialog.tsx
+    NetflixBadge.tsx, MovieCard.tsx, MovieGrid.tsx, InfiniteSentinel.tsx
+    CatalogToolbar.tsx, CatalogView.tsx, MovieModal.tsx
+    auth/AuthProvider.tsx, auth/AuthModal.tsx, auth/AccountView.tsx, auth/ResetPasswordView.tsx
+    lists/ListsProvider.tsx, lists/ListButtons.tsx, lists/ListsView.tsx
 tests/
   stubs/empty.ts
   unit/*.test.ts
-  integration/global-setup.ts, setup-env.ts, helpers.ts, *.test.ts
+  integration/setup-env.ts, integration/helpers.ts, integration/*.test.ts
   mocks/tmdb-server.ts
-  e2e/helpers.ts, *.spec.ts
+  e2e/helpers.ts, e2e/*.spec.ts
 ```
 
 ---
 
-### Tarefa 1: Base do projeto (Next.js, Vitest, Docker, `.env`)
+### Tarefa 1: Base do projeto (Next.js, Vitest, Supabase local, Vercel)
+
+**Branch:** `tarefa-01-base`
 
 **Arquivos:**
 - Criar (via create-next-app): `package.json`, `tsconfig.json`, `next.config.ts`, `src/app/*`, `public/`, `eslint.config.mjs`, `postcss.config.mjs`
-- Criar: `docker-compose.yml`, `docker-compose.override.yml`, `.env.example`, `.env` (local, fora do git), `vitest.config.ts`, `tests/stubs/empty.ts`, `src/lib/env.ts`, `tests/unit/env.test.ts`
-- Modificar: `.gitignore`
+- Criar: `vitest.config.ts`, `tests/stubs/empty.ts`, `src/lib/env.ts`, `tests/unit/env.test.ts`, `.env.example`, `.env` (fora do git), `supabase/` (via `supabase init`)
+- Modificar: `.gitignore`, `src/app/layout.tsx`, `src/app/page.tsx`, `src/app/globals.css`
 
 **Interfaces:**
-- Produz: `parseEnv(source): Env`, `getEnv(): Env` e o tipo `Env` com os campos `DATABASE_URL`, `TMDB_API_TOKEN`, `TMDB_BASE_URL`, `NETFLIX_PROVIDER_IDS: number[]`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `AUTH_RATE_LIMIT_ENABLED: boolean`, `SMTP_HOST`, `SMTP_PORT: number`, `SMTP_USER?`, `SMTP_PASS?`, `SMTP_FROM`.
+- Produz: `parseEnv(source): Env`, `getEnv(): Env` e o tipo `Env` com `TMDB_API_TOKEN`, `TMDB_BASE_URL` e `NETFLIX_PROVIDER_IDS: number[]`.
 
-- [ ] **Passo 1: Gerar o projeto Next.js numa pasta temporária e trazê-lo para o repositório**
-
-A pasta do repositório não está vazia (`docs/`, `arquivos/`), e o create-next-app recusa pastas com arquivos. Por isso o projeto é gerado ao lado e copiado para cá.
+- [ ] **Passo 1: Criar a branch**
 
 ```bash
-export PATH="$HOME/.nvm/versions/node/v22.23.3/bin:$PATH"
+cd /home/jota/Desktop/dev/claude_renatoAsse
+git switch main && git pull && git switch -c tarefa-01-base
+```
+
+- [ ] **Passo 2: Gerar o projeto Next.js numa pasta temporária e trazê-lo para o repositório**
+
+A pasta não está vazia (`docs/`, `arquivos/`), e o create-next-app recusa pastas com arquivos.
+
+```bash
 cd /home/jota/Desktop/dev
 npx create-next-app@16 claude-nextjs-scaffold --ts --tailwind --eslint --app --src-dir --import-alias "@/*" --use-npm --yes
 cd /home/jota/Desktop/dev/claude_renatoAsse
@@ -131,18 +135,17 @@ npm install
 npm pkg set name=claude-nextjs
 ```
 
-Resultado esperado: `package.json` com `next` 16.x, `src/app/page.tsx` e `src/app/layout.tsx` existindo, e `.gitignore` contendo as linhas originais (`arquivos/`, `.env`...) seguidas das do Next (`node_modules`, `.next`...).
+Depois, confira o `.gitignore`. Se o Next adicionou uma linha `.env*`, remova-a: ela ignoraria o `.env.example`, e as nossas linhas `.env`, `.env.*` e `!.env.example` já cobrem o caso.
 
-Depois, confira se o `.gitignore` do Next tem uma linha `.env*`. Ela ignoraria o `.env.example`. Se existir, remova essa linha, porque as nossas regras `.env`, `.env.*` e `!.env.example` já cobrem o caso.
-
-- [ ] **Passo 2: Instalar as dependências de teste e validação**
+- [ ] **Passo 3: Dependências de teste e o Supabase CLI**
 
 ```bash
 npm install zod server-only
-npm install -D vitest
+npm install -D vitest supabase
+npm pkg set scripts.test="vitest run"
+npm pkg set scripts.db:start="supabase start"
+npm pkg set scripts.db:stop="supabase stop"
 ```
-
-- [ ] **Passo 3: Configurar o Vitest e os scripts**
 
 Criar `vitest.config.ts`:
 
@@ -171,12 +174,7 @@ Criar `tests/stubs/empty.ts`:
 export {};
 ```
 
-```bash
-npm pkg set scripts.test="vitest run"
-npm pkg set scripts.test:watch="vitest"
-```
-
-- [ ] **Passo 4: Escrever o teste da validação do `.env` (falhando)**
+- [ ] **Passo 4: Teste da validação do `.env` (falhando)**
 
 Criar `tests/unit/env.test.ts`:
 
@@ -184,55 +182,32 @@ Criar `tests/unit/env.test.ts`:
 import { describe, expect, it } from "vitest";
 import { parseEnv } from "@/lib/env";
 
-const base = {
-  DATABASE_URL: "postgres://app:senha@localhost:5442/claude_nextjs",
-  TMDB_API_TOKEN: "token",
-  BETTER_AUTH_SECRET: "x".repeat(32),
-  BETTER_AUTH_URL: "http://localhost:3000",
-  SMTP_HOST: "localhost",
-  SMTP_PORT: "1025",
-  SMTP_FROM: "claude-nextjs <nao-responda@localhost>",
-};
-
 describe("parseEnv", () => {
   it("aplica os valores padrão", () => {
-    const env = parseEnv(base);
+    const env = parseEnv({ TMDB_API_TOKEN: "token" });
     expect(env.TMDB_BASE_URL).toBe("https://api.themoviedb.org/3");
     expect(env.NETFLIX_PROVIDER_IDS).toEqual([8]);
-    expect(env.SMTP_PORT).toBe(1025);
-    expect(env.AUTH_RATE_LIMIT_ENABLED).toBe(true);
   });
 
   it("lê vários IDs de provedor da Netflix", () => {
-    expect(parseEnv({ ...base, NETFLIX_PROVIDER_IDS: "8, 1796" }).NETFLIX_PROVIDER_IDS).toEqual([8, 1796]);
-  });
-
-  it("desliga o limite de tentativas quando pedido", () => {
-    expect(parseEnv({ ...base, AUTH_RATE_LIMIT_ENABLED: "false" }).AUTH_RATE_LIMIT_ENABLED).toBe(false);
+    expect(parseEnv({ TMDB_API_TOKEN: "t", NETFLIX_PROVIDER_IDS: "8, 1796" }).NETFLIX_PROVIDER_IDS).toEqual([8, 1796]);
   });
 
   it("recusa configuração sem token do TMDB", () => {
-    expect(() => parseEnv({ ...base, TMDB_API_TOKEN: "" })).toThrow();
-  });
-
-  it("recusa segredo de autenticação curto", () => {
-    expect(() => parseEnv({ ...base, BETTER_AUTH_SECRET: "curto" })).toThrow();
+    expect(() => parseEnv({ TMDB_API_TOKEN: "" })).toThrow();
+    expect(() => parseEnv({})).toThrow();
   });
 });
 ```
 
-- [ ] **Passo 5: Rodar o teste e ver que falha**
+Rodar: `npm test`. Esperado: FALHA (módulo `@/lib/env` inexistente).
 
-Rodar: `npm test`
-Esperado: FALHA com erro de importação de `@/lib/env`.
-
-- [ ] **Passo 6: Implementar `src/lib/env.ts`**
+- [ ] **Passo 5: Implementar `src/lib/env.ts`**
 
 ```ts
 import { z } from "zod";
 
 const schema = z.object({
-  DATABASE_URL: z.string().min(1),
   TMDB_API_TOKEN: z.string().min(1),
   TMDB_BASE_URL: z.string().url().default("https://api.themoviedb.org/3"),
   NETFLIX_PROVIDER_IDS: z
@@ -244,17 +219,6 @@ const schema = z.object({
         .map((id) => Number(id.trim()))
         .filter((id) => Number.isInteger(id) && id > 0),
     ),
-  BETTER_AUTH_SECRET: z.string().min(32),
-  BETTER_AUTH_URL: z.string().url(),
-  AUTH_RATE_LIMIT_ENABLED: z
-    .enum(["true", "false"])
-    .default("true")
-    .transform((value) => value === "true"),
-  SMTP_HOST: z.string().min(1),
-  SMTP_PORT: z.coerce.number().int().positive(),
-  SMTP_USER: z.string().optional(),
-  SMTP_PASS: z.string().optional(),
-  SMTP_FROM: z.string().min(1),
 });
 
 export type Env = z.output<typeof schema>;
@@ -265,620 +229,67 @@ export function parseEnv(source: Record<string, string | undefined>): Env {
 
 let cached: Env | undefined;
 
-/** Lê o .env só quando alguém precisa (assim o `next build` não exige segredos). */
+/** Variáveis do servidor, lidas só quando alguém precisa (o `next build` não exige segredos). */
 export function getEnv(): Env {
   cached ??= parseEnv(process.env);
   return cached;
 }
 ```
 
-- [ ] **Passo 7: Rodar os testes e ver que passam**
+Rodar: `npm test`. Esperado: PASSA (3 testes).
 
-Rodar: `npm test`
-Esperado: PASSA (5 testes).
+- [ ] **Passo 6: Supabase local**
 
-- [ ] **Passo 8: Docker Compose do banco, do banco de testes e do Mailpit**
-
-Criar `docker-compose.yml`:
-
-```yaml
-services:
-  db:
-    image: postgres:17-alpine
-    environment:
-      POSTGRES_USER: app
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: claude_nextjs
-    ports:
-      - "127.0.0.1:5442:5432"
-    volumes:
-      - db-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U app -d claude_nextjs"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-    restart: unless-stopped
-
-volumes:
-  db-data:
+```bash
+npx supabase init --yes
 ```
 
-Criar `docker-compose.override.yml`. Ele é carregado automaticamente pelo `docker compose up` e só existe em desenvolvimento:
+Em `supabase/config.toml`, ajuste estes valores (as seções já existem no arquivo gerado):
 
-```yaml
-services:
-  db-test:
-    image: postgres:17-alpine
-    environment:
-      POSTGRES_USER: app
-      POSTGRES_PASSWORD: app
-      POSTGRES_DB: claude_nextjs_test
-    ports:
-      - "127.0.0.1:5443:5432"
-    tmpfs:
-      - /var/lib/postgresql/data
+```toml
+[auth]
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["http://localhost:3100"]
+minimum_password_length = 8
 
-  mailpit:
-    image: axllent/mailpit:latest
-    ports:
-      - "127.0.0.1:1025:1025"
-      - "127.0.0.1:8025:8025"
+[auth.rate_limit]
+# valores altos só no local: os testes criam muitas contas seguidas
+sign_in_sign_ups = 1000
+token_verifications = 1000
+
+[auth.email]
+enable_confirmations = false
 ```
 
-- [ ] **Passo 9: `.env.example` e `.env` local**
+```bash
+npx supabase start
+npx supabase status
+```
+
+Esperado: o `status` lista `API URL` (`http://127.0.0.1:54321`), uma chave **Publishable** (ou "anon key", conforme a versão) e a URL da caixa de e-mails (`http://127.0.0.1:54324`). Abra http://localhost:54323 para ver o painel (Studio).
+
+- [ ] **Passo 7: `.env.example` e `.env` local**
 
 Criar `.env.example`:
 
 ```bash
-# Banco (docker-compose.yml usa POSTGRES_PASSWORD)
-POSTGRES_PASSWORD=troque-esta-senha
-DATABASE_URL=postgres://app:troque-esta-senha@localhost:5442/claude_nextjs
-DATABASE_URL_TEST=postgres://app:app@localhost:5443/claude_nextjs_test
+# Supabase (local: valores do `npx supabase status`; produção: painel do Supabase)
+NEXT_PUBLIC_SUPABASE_URL=http://localhost:54321
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
 
 # TMDB: Token de Leitura da API (themoviedb.org > Configurações > API)
 TMDB_API_TOKEN=
 TMDB_BASE_URL=https://api.themoviedb.org/3
 NETFLIX_PROVIDER_IDS=8
-
-# Autenticação: gere com `openssl rand -base64 32`
-BETTER_AUTH_SECRET=
-BETTER_AUTH_URL=http://localhost:3000
-AUTH_RATE_LIMIT_ENABLED=true
-
-# E-mail (Mailpit em desenvolvimento)
-SMTP_HOST=localhost
-SMTP_PORT=1025
-SMTP_USER=
-SMTP_PASS=
-SMTP_FROM="claude-nextjs <nao-responda@localhost>"
 ```
-
-**Ação manual do usuário:** criar uma conta em https://www.themoviedb.org, ir em *Configurações → API*, solicitar uma chave de desenvolvedor (uso pessoal) e copiar o **Token de Leitura da API** (o token longo, não a "API Key" curta).
 
 ```bash
 cp .env.example .env
-SENHA_DB=$(openssl rand -hex 16)
-sed -i "s/troque-esta-senha/$SENHA_DB/g" .env
-sed -i "s|^BETTER_AUTH_SECRET=.*|BETTER_AUTH_SECRET=$(openssl rand -base64 32)|" .env
-# Cole o token do TMDB na linha TMDB_API_TOKEN= do .env
+# Cole em NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY a chave publishable (ou anon) mostrada pelo `npx supabase status`.
+# O TMDB_API_TOKEN fica vazio até a Tarefa 2.
 ```
 
-- [ ] **Passo 10: Subir os containers e conferir**
-
-```bash
-docker compose up -d
-docker compose ps
-```
-
-Esperado: `db`, `db-test` e `mailpit` com status `running` (o `db` como `healthy`), e http://localhost:8025 abrindo a interface do Mailpit.
-
-- [ ] **Passo 11: Conferir que o app sobe**
-
-Rodar: `npm run dev`, abrir http://localhost:3000 (a página inicial padrão do Next deve aparecer) e encerrar com Ctrl+C.
-
-- [ ] **Passo 12: Commit e push**
-
-```bash
-git add -A
-git status --short   # conferir: .env NÃO pode aparecer
-git commit -m "chore: base do projeto com Next.js, Vitest, Docker e validação do .env
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
-git push
-```
-
----
-
-### Tarefa 2: Banco de dados (schema, migrações, migração automática)
-
-**Arquivos:**
-- Criar: `src/lib/db/schema.ts`, `src/lib/db/index.ts`, `src/lib/db/migrate.ts`, `src/instrumentation.ts`, `drizzle.config.ts`, `vitest.integration.config.ts`, `tests/integration/global-setup.ts`, `tests/integration/setup-env.ts`, `tests/integration/helpers.ts`, `tests/integration/schema.test.ts`
-- Gerar: `drizzle/` (migrações)
-
-**Interfaces:**
-- Consome: `getEnv()` (Tarefa 1).
-- Produz: as tabelas Drizzle `user`, `session`, `account`, `verification`, `listItems` e o enum `listTypeEnum`; `createDb(connectionString): Db`; `getDb(): Db`; o tipo `Db`; `runMigrations(): Promise<void>`. Helpers de teste: `testDb()`, `resetDb(db)` e `createUser(db, id)`.
-
-- [ ] **Passo 1: Instalar o Drizzle e o driver do Postgres**
-
-```bash
-npm install drizzle-orm pg
-npm install -D drizzle-kit @types/pg
-npm pkg set scripts.test:integration="vitest run --config vitest.integration.config.ts"
-npm pkg set scripts.db:generate="drizzle-kit generate"
-```
-
-- [ ] **Passo 2: Configurar o Vitest de integração**
-
-Criar `vitest.integration.config.ts`:
-
-```ts
-import { fileURLToPath } from "node:url";
-import { defineConfig } from "vitest/config";
-
-export default defineConfig({
-  resolve: {
-    alias: {
-      "@": fileURLToPath(new URL("./src", import.meta.url)),
-      "server-only": fileURLToPath(new URL("./tests/stubs/empty.ts", import.meta.url)),
-    },
-  },
-  test: {
-    include: ["tests/integration/**/*.test.ts"],
-    environment: "node",
-    globalSetup: ["tests/integration/global-setup.ts"],
-    setupFiles: ["tests/integration/setup-env.ts"],
-    fileParallelism: false,
-    hookTimeout: 30_000,
-  },
-});
-```
-
-Criar `tests/integration/setup-env.ts`:
-
-```ts
-import { loadEnvConfig } from "@next/env";
-
-loadEnvConfig(process.cwd());
-```
-
-Criar `tests/integration/global-setup.ts`:
-
-```ts
-import { loadEnvConfig } from "@next/env";
-import { drizzle } from "drizzle-orm/node-postgres";
-import { migrate } from "drizzle-orm/node-postgres/migrator";
-import { Pool } from "pg";
-
-export default async function setup() {
-  loadEnvConfig(process.cwd());
-  const url = process.env.DATABASE_URL_TEST;
-  if (!url) throw new Error("DATABASE_URL_TEST não definida no .env");
-  const pool = new Pool({ connectionString: url });
-  await migrate(drizzle(pool), { migrationsFolder: "drizzle" });
-  await pool.end();
-}
-```
-
-Criar `tests/integration/helpers.ts`:
-
-```ts
-import { sql } from "drizzle-orm";
-import { createDb, type Db } from "@/lib/db";
-import { user } from "@/lib/db/schema";
-
-export function testDb(): Db {
-  const url = process.env.DATABASE_URL_TEST;
-  if (!url) throw new Error("DATABASE_URL_TEST não definida no .env");
-  return createDb(url);
-}
-
-export async function resetDb(db: Db): Promise<void> {
-  await db.execute(sql`TRUNCATE TABLE "user" CASCADE`);
-}
-
-export async function createUser(db: Db, id: string): Promise<string> {
-  await db.insert(user).values({ id, name: id, email: `${id}@teste.com` });
-  return id;
-}
-```
-
-- [ ] **Passo 3: Escrever o teste do schema (falhando)**
-
-Criar `tests/integration/schema.test.ts`:
-
-```ts
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { listItems, user } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
-import { createUser, resetDb, testDb } from "./helpers";
-
-const db = testDb();
-
-beforeEach(() => resetDb(db));
-afterAll(() => db.$client.end());
-
-describe("schema do banco", () => {
-  it("grava um item de lista ligado a um usuário", async () => {
-    await createUser(db, "ana");
-    await db.insert(listItems).values({ userId: "ana", tmdbMovieId: 10, listType: "want", title: "Filme" });
-    const rows = await db.select().from(listItems);
-    expect(rows).toHaveLength(1);
-    expect(rows[0].posterPath).toBeNull();
-    expect(rows[0].createdAt).toBeInstanceOf(Date);
-  });
-
-  it("recusa o mesmo filme duas vezes na mesma lista", async () => {
-    await createUser(db, "ana");
-    const item = { userId: "ana", tmdbMovieId: 10, listType: "want" as const, title: "Filme" };
-    await db.insert(listItems).values(item);
-    await expect(db.insert(listItems).values(item)).rejects.toThrow();
-  });
-
-  it("apagar o usuário apaga os itens dele", async () => {
-    await createUser(db, "ana");
-    await db.insert(listItems).values({ userId: "ana", tmdbMovieId: 10, listType: "favorite", title: "Filme" });
-    await db.delete(user).where(eq(user.id, "ana"));
-    expect(await db.select().from(listItems)).toHaveLength(0);
-  });
-});
-```
-
-- [ ] **Passo 4: Rodar e ver que falha**
-
-Rodar: `npm run test:integration`
-Esperado: FALHA (`@/lib/db` e `@/lib/db/schema` não existem).
-
-- [ ] **Passo 5: Escrever o schema**
-
-As quatro primeiras tabelas são as do Better Auth 1.x. As chaves em camelCase precisam ter exatamente esses nomes, porque o adaptador do Better Auth as procura pelo nome. Se a documentação da versão instalada (https://www.better-auth.com/docs/concepts/database) listar campos diferentes, siga a documentação.
-
-Criar `src/lib/db/schema.ts`:
-
-```ts
-import { boolean, index, integer, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
-
-// ── Tabelas do Better Auth ─────────────────────────────────────────
-export const user = pgTable("user", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  email: text("email").notNull().unique(),
-  emailVerified: boolean("email_verified").notNull().default(false),
-  image: text("image"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
-
-export const session = pgTable("session", {
-  id: text("id").primaryKey(),
-  expiresAt: timestamp("expires_at").notNull(),
-  token: text("token").notNull().unique(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-  ipAddress: text("ip_address"),
-  userAgent: text("user_agent"),
-  userId: text("user_id")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
-});
-
-export const account = pgTable("account", {
-  id: text("id").primaryKey(),
-  accountId: text("account_id").notNull(),
-  providerId: text("provider_id").notNull(),
-  userId: text("user_id")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
-  accessToken: text("access_token"),
-  refreshToken: text("refresh_token"),
-  idToken: text("id_token"),
-  accessTokenExpiresAt: timestamp("access_token_expires_at"),
-  refreshTokenExpiresAt: timestamp("refresh_token_expires_at"),
-  scope: text("scope"),
-  password: text("password"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
-
-export const verification = pgTable("verification", {
-  id: text("id").primaryKey(),
-  identifier: text("identifier").notNull(),
-  value: text("value").notNull(),
-  expiresAt: timestamp("expires_at").notNull(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
-
-// ── Listas ─────────────────────────────────────────────────────────
-export const listTypeEnum = pgEnum("list_type", ["want", "favorite"]);
-
-export const listItems = pgTable(
-  "list_items",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    userId: text("user_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
-    tmdbMovieId: integer("tmdb_movie_id").notNull(),
-    listType: listTypeEnum("list_type").notNull(),
-    title: text("title").notNull(),
-    posterPath: text("poster_path"),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [
-    uniqueIndex("list_items_user_movie_list_uq").on(t.userId, t.tmdbMovieId, t.listType),
-    index("list_items_user_created_idx").on(t.userId, t.createdAt),
-  ],
-);
-```
-
-- [ ] **Passo 6: Conexão com o banco e migrador**
-
-Criar `src/lib/db/index.ts`:
-
-```ts
-import { drizzle } from "drizzle-orm/node-postgres";
-import { Pool } from "pg";
-import { getEnv } from "@/lib/env";
-import * as schema from "./schema";
-
-export function createDb(connectionString: string) {
-  return drizzle(new Pool({ connectionString }), { schema });
-}
-
-export type Db = ReturnType<typeof createDb>;
-
-// Em desenvolvimento o Next recarrega módulos; guardar no globalThis evita abrir várias conexões.
-const globalForDb = globalThis as unknown as { __db?: Db };
-
-export function getDb(): Db {
-  globalForDb.__db ??= createDb(getEnv().DATABASE_URL);
-  return globalForDb.__db;
-}
-```
-
-Criar `src/lib/db/migrate.ts`:
-
-```ts
-import path from "node:path";
-import { migrate } from "drizzle-orm/node-postgres/migrator";
-import { getDb } from "./index";
-
-export async function runMigrations(): Promise<void> {
-  await migrate(getDb(), { migrationsFolder: path.join(process.cwd(), "drizzle") });
-}
-```
-
-Criar `src/instrumentation.ts` (o Next executa `register()` uma vez quando o servidor sobe):
-
-```ts
-export async function register() {
-  if (process.env.NEXT_RUNTIME !== "nodejs") return;
-  const { runMigrations } = await import("@/lib/db/migrate");
-  await runMigrations();
-}
-```
-
-Criar `drizzle.config.ts`:
-
-```ts
-import { loadEnvConfig } from "@next/env";
-import { defineConfig } from "drizzle-kit";
-
-loadEnvConfig(process.cwd());
-
-export default defineConfig({
-  schema: "./src/lib/db/schema.ts",
-  out: "./drizzle",
-  dialect: "postgresql",
-  dbCredentials: { url: process.env.DATABASE_URL ?? "" },
-});
-```
-
-- [ ] **Passo 7: Gerar a migração**
-
-Rodar: `npm run db:generate`
-Esperado: uma pasta `drizzle/` com `0000_*.sql` criando `user`, `session`, `account`, `verification`, o enum `list_type` e `list_items`.
-
-- [ ] **Passo 8: Rodar os testes de integração e ver que passam**
-
-Rodar: `npm run test:integration`
-Esperado: PASSA (3 testes).
-
-- [ ] **Passo 9: Conferir a migração automática no banco de desenvolvimento**
-
-```bash
-npm run dev   # aguarde "Ready", depois Ctrl+C
-docker compose exec db psql -U app -d claude_nextjs -c '\dt'
-```
-
-Esperado: as tabelas `user`, `session`, `account`, `verification`, `list_items` e `__drizzle_migrations` (esta última fica no schema `drizzle`; use `\dt drizzle.*` para vê-la).
-
-- [ ] **Passo 10: Commit e push**
-
-```bash
-git add -A
-git commit -m "feat: schema do banco com Drizzle e migração automática ao subir
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
-git push
-```
-
----
-
-### Tarefa 3: Contas (cadastro, login, sair, proteção de páginas)
-
-**Arquivos:**
-- Criar: `src/lib/auth.ts`, `src/lib/auth-client.ts`, `src/lib/session.ts`, `src/lib/return-path.ts`, `src/app/api/auth/[...all]/route.ts`, `src/components/TextField.tsx`, `src/components/NavBar.tsx`, `src/app/(auth)/layout.tsx`, `src/app/(auth)/entrar/page.tsx`, `src/app/(auth)/entrar/LoginForm.tsx`, `src/app/(auth)/criar-conta/page.tsx`, `src/app/(auth)/criar-conta/SignUpForm.tsx`, `src/app/(app)/layout.tsx`, `src/app/(app)/page.tsx`, `src/app/(app)/conta/page.tsx`, `src/app/(app)/conta/SignOutButton.tsx`, `playwright.config.ts`, `tests/unit/return-path.test.ts`, `tests/e2e/helpers.ts`, `tests/e2e/auth.spec.ts`
-- Modificar: `src/app/layout.tsx`, `src/app/globals.css`
-- Apagar: `src/app/page.tsx`
-
-**Interfaces:**
-- Consome: `getEnv()`, `getDb()`, `Db`, `Env` e as tabelas de auth.
-- Produz: `getAuth()`, `createAuth(db, env)`, `SESSION_EXPIRES_IN`, `SESSION_UPDATE_AGE`, `authClient`, `getSession()`, `requirePageSession(path): Promise<Session>`, `getApiUserId(req): Promise<string | null>`, `safeReturnPath(value): string` e `<TextField label ...inputProps />`. Helpers E2E: `uniqueEmail()`, `PASSWORD`, `signUp(page, opts?)`, `logIn(page, email, password)`, `logOut(page)`.
-
-- [ ] **Passo 1: Instalar o Better Auth e o Playwright**
-
-```bash
-npm install better-auth
-npm install -D @playwright/test
-npx playwright install chromium
-npm pkg set scripts.test:e2e="playwright test"
-```
-
-- [ ] **Passo 2: Teste do `safeReturnPath` (falhando)**
-
-Criar `tests/unit/return-path.test.ts`:
-
-```ts
-import { describe, expect, it } from "vitest";
-import { safeReturnPath } from "@/lib/return-path";
-
-describe("safeReturnPath", () => {
-  it("aceita caminhos internos", () => {
-    expect(safeReturnPath("/conta")).toBe("/conta");
-    expect(safeReturnPath("/listas?aba=favoritos")).toBe("/listas?aba=favoritos");
-  });
-
-  it("usa / quando não há valor", () => {
-    expect(safeReturnPath(undefined)).toBe("/");
-    expect(safeReturnPath(null)).toBe("/");
-    expect(safeReturnPath("")).toBe("/");
-  });
-
-  it("recusa endereços externos", () => {
-    expect(safeReturnPath("https://site-externo.com")).toBe("/");
-    expect(safeReturnPath("//site-externo.com")).toBe("/");
-    expect(safeReturnPath("/\\site-externo.com")).toBe("/");
-  });
-
-  it("ignora listas de valores", () => {
-    expect(safeReturnPath(["/conta", "/x"])).toBe("/");
-  });
-});
-```
-
-Rodar: `npm test`. Esperado: FALHA (módulo inexistente).
-
-- [ ] **Passo 3: Implementar `src/lib/return-path.ts`**
-
-```ts
-/** Só permite voltar para caminhos deste site (evita redirecionar para sites externos). */
-export function safeReturnPath(value: string | string[] | null | undefined): string {
-  if (typeof value !== "string") return "/";
-  if (!value.startsWith("/") || value.startsWith("//") || value.startsWith("/\\")) return "/";
-  return value;
-}
-```
-
-Rodar: `npm test`. Esperado: PASSA.
-
-- [ ] **Passo 4: Configurar o Better Auth no servidor**
-
-Criar `src/lib/auth.ts`:
-
-```ts
-import "server-only";
-import { betterAuth } from "better-auth";
-import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { nextCookies } from "better-auth/next-js";
-import { getDb, type Db } from "@/lib/db";
-import { account, session, user, verification } from "@/lib/db/schema";
-import { getEnv, type Env } from "@/lib/env";
-
-export const SESSION_EXPIRES_IN = 60 * 60 * 24 * 7; // 7 dias
-export const SESSION_UPDATE_AGE = 60 * 60 * 24; // renova no máximo 1x por dia de uso
-
-export function createAuth(db: Db, env: Env) {
-  return betterAuth({
-    baseURL: env.BETTER_AUTH_URL,
-    secret: env.BETTER_AUTH_SECRET,
-    database: drizzleAdapter(db, { provider: "pg", schema: { user, session, account, verification } }),
-    emailAndPassword: {
-      enabled: true,
-      minPasswordLength: 8,
-      autoSignIn: true,
-    },
-    session: {
-      expiresIn: SESSION_EXPIRES_IN,
-      updateAge: SESSION_UPDATE_AGE,
-    },
-    rateLimit: {
-      enabled: env.AUTH_RATE_LIMIT_ENABLED,
-      window: 60,
-      max: 100,
-      customRules: {
-        "/sign-in/email": { window: 60, max: 5 },
-        "/sign-up/email": { window: 60, max: 5 },
-      },
-    },
-    plugins: [nextCookies()],
-  });
-}
-
-export type Auth = ReturnType<typeof createAuth>;
-
-const globalForAuth = globalThis as unknown as { __auth?: Auth };
-
-export function getAuth(): Auth {
-  globalForAuth.__auth ??= createAuth(getDb(), getEnv());
-  return globalForAuth.__auth;
-}
-```
-
-Criar `src/app/api/auth/[...all]/route.ts`:
-
-```ts
-import { toNextJsHandler } from "better-auth/next-js";
-import { getAuth } from "@/lib/auth";
-
-export const dynamic = "force-dynamic";
-
-export async function GET(req: Request) {
-  return toNextJsHandler(getAuth()).GET(req);
-}
-
-export async function POST(req: Request) {
-  return toNextJsHandler(getAuth()).POST(req);
-}
-```
-
-Criar `src/lib/auth-client.ts`:
-
-```ts
-import { createAuthClient } from "better-auth/react";
-
-export const authClient = createAuthClient();
-```
-
-Criar `src/lib/session.ts`:
-
-```ts
-import "server-only";
-import { headers } from "next/headers";
-import { redirect } from "next/navigation";
-import { getAuth } from "@/lib/auth";
-
-export async function getSession() {
-  return getAuth().api.getSession({ headers: await headers() });
-}
-
-/** Em páginas: sem sessão, manda para o login lembrando de onde veio. */
-export async function requirePageSession(path: string) {
-  const session = await getSession();
-  if (!session) redirect(`/entrar?volta=${encodeURIComponent(path)}`);
-  return session;
-}
-
-/** Em rotas /api: devolve o id do usuário ou null. */
-export async function getApiUserId(req: Request): Promise<string | null> {
-  const session = await getAuth().api.getSession({ headers: req.headers });
-  return session?.user.id ?? null;
-}
-```
-
-- [ ] **Passo 5: Layout raiz e componentes base**
+- [ ] **Passo 8: Layout base e página provisória**
 
 Substituir `src/app/globals.css` por:
 
@@ -910,559 +321,96 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 }
 ```
 
-Apagar `src/app/page.tsx` (a rota `/` passa a ser `src/app/(app)/page.tsx`):
+Substituir `src/app/page.tsx` por (provisório; a Tarefa 3 substitui):
+
+```tsx
+export default function Home() {
+  return <h1 className="p-6 text-2xl font-semibold">Catálogo de Filmes</h1>;
+}
+```
+
+- [ ] **Passo 9: Conferir**
 
 ```bash
-rm src/app/page.tsx
-```
-
-Criar `src/components/TextField.tsx`:
-
-```tsx
-"use client";
-
-import { useId } from "react";
-
-type Props = { label: string } & React.InputHTMLAttributes<HTMLInputElement>;
-
-export function TextField({ label, ...inputProps }: Props) {
-  const id = useId();
-  return (
-    <div className="space-y-1">
-      <label htmlFor={id} className="block text-sm text-neutral-300">
-        {label}
-      </label>
-      <input
-        id={id}
-        {...inputProps}
-        className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-red-500 focus:outline-none"
-      />
-    </div>
-  );
-}
-```
-
-Criar `src/components/NavBar.tsx`. A Tarefa 8 adiciona "Minhas listas":
-
-```tsx
-"use client";
-
-import Link from "next/link";
-import { usePathname } from "next/navigation";
-
-const LINKS = [
-  { href: "/", label: "Catálogo" },
-  { href: "/conta", label: "Conta" },
-];
-
-export function NavBar() {
-  const pathname = usePathname();
-  return (
-    <nav
-      aria-label="Navegação principal"
-      className="fixed inset-x-0 bottom-0 z-40 h-14 border-t border-neutral-800 bg-neutral-950/95 backdrop-blur md:sticky md:top-0 md:bottom-auto md:border-t-0 md:border-b"
-    >
-      <ul className="mx-auto flex h-full max-w-5xl">
-        {LINKS.map((link) => {
-          const active = link.href === "/" ? pathname === "/" : pathname.startsWith(link.href);
-          return (
-            <li key={link.href} className="flex-1">
-              <Link
-                href={link.href}
-                aria-current={active ? "page" : undefined}
-                className={`flex h-full items-center justify-center text-sm font-medium ${active ? "text-white" : "text-neutral-400"}`}
-              >
-                {link.label}
-              </Link>
-            </li>
-          );
-        })}
-      </ul>
-    </nav>
-  );
-}
-```
-
-- [ ] **Passo 6: Telas de login e cadastro**
-
-Criar `src/app/(auth)/layout.tsx`:
-
-```tsx
-export default function AuthLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="flex min-h-dvh flex-col items-center justify-center p-6">
-      <div className="w-full max-w-sm rounded-lg border border-neutral-800 bg-neutral-900/60 p-6">{children}</div>
-    </div>
-  );
-}
-```
-
-Criar `src/app/(auth)/entrar/page.tsx`:
-
-```tsx
-import { redirect } from "next/navigation";
-import { safeReturnPath } from "@/lib/return-path";
-import { getSession } from "@/lib/session";
-import { LoginForm } from "./LoginForm";
-
-export default async function EntrarPage({ searchParams }: { searchParams: Promise<{ volta?: string }> }) {
-  const { volta } = await searchParams;
-  const returnTo = safeReturnPath(volta);
-  if (await getSession()) redirect(returnTo);
-  return <LoginForm returnTo={returnTo} />;
-}
-```
-
-Criar `src/app/(auth)/entrar/LoginForm.tsx`:
-
-```tsx
-"use client";
-
-import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { TextField } from "@/components/TextField";
-import { authClient } from "@/lib/auth-client";
-
-export function LoginForm({ returnTo }: { returnTo: string }) {
-  const router = useRouter();
-  const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
-
-  async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    setPending(true);
-    setError(null);
-    try {
-      const { error } = await authClient.signIn.email({
-        email: String(form.get("email")),
-        password: String(form.get("password")),
-      });
-      if (error) {
-        if (!error.status) setError("Sem conexão. Verifique sua internet.");
-        else if (error.status === 429) setError("Muitas tentativas. Aguarde um minuto e tente de novo.");
-        else setError("E-mail ou senha incorretos.");
-        return;
-      }
-      router.replace(returnTo);
-      router.refresh();
-    } catch {
-      setError("Sem conexão. Verifique sua internet.");
-    } finally {
-      setPending(false);
-    }
-  }
-
-  return (
-    <form onSubmit={onSubmit} className="space-y-4">
-      <h1 className="text-xl font-semibold">Entrar</h1>
-      <TextField label="E-mail" name="email" type="email" autoComplete="email" required />
-      <TextField label="Senha" name="password" type="password" autoComplete="current-password" required />
-      {error && (
-        <p role="alert" className="text-sm text-red-400">
-          {error}
-        </p>
-      )}
-      <button
-        type="submit"
-        disabled={pending}
-        className="w-full rounded-md bg-red-600 py-2 font-medium text-white disabled:opacity-60"
-      >
-        {pending ? "Entrando..." : "Entrar"}
-      </button>
-      <p className="text-center text-sm text-neutral-400">
-        Não tem conta?{" "}
-        <Link href="/criar-conta" className="text-red-400 underline">
-          Criar conta
-        </Link>
-      </p>
-    </form>
-  );
-}
-```
-
-Criar `src/app/(auth)/criar-conta/page.tsx`:
-
-```tsx
-import { redirect } from "next/navigation";
-import { getSession } from "@/lib/session";
-import { SignUpForm } from "./SignUpForm";
-
-export default async function CriarContaPage() {
-  if (await getSession()) redirect("/");
-  return <SignUpForm />;
-}
-```
-
-Criar `src/app/(auth)/criar-conta/SignUpForm.tsx`:
-
-```tsx
-"use client";
-
-import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { TextField } from "@/components/TextField";
-import { authClient } from "@/lib/auth-client";
-
-export function SignUpForm() {
-  const router = useRouter();
-  const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
-
-  async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const password = String(form.get("password"));
-    if (password.length < 8) {
-      setError("A senha precisa ter pelo menos 8 caracteres.");
-      return;
-    }
-    setPending(true);
-    setError(null);
-    try {
-      const { error } = await authClient.signUp.email({
-        name: String(form.get("name")).trim(),
-        email: String(form.get("email")).trim(),
-        password,
-      });
-      if (error) {
-        const code = error.code ?? "";
-        if (!error.status) setError("Sem conexão. Verifique sua internet.");
-        else if (error.status === 422 || /EXIST/i.test(code)) setError("Este e-mail já tem conta. Entre ou use outro e-mail.");
-        else if (/PASSWORD/i.test(code)) setError("A senha precisa ter pelo menos 8 caracteres.");
-        else if (error.status === 429) setError("Muitas tentativas. Aguarde um minuto e tente de novo.");
-        else setError("Não foi possível criar a conta. Tente de novo.");
-        return;
-      }
-      router.replace("/");
-      router.refresh();
-    } catch {
-      setError("Sem conexão. Verifique sua internet.");
-    } finally {
-      setPending(false);
-    }
-  }
-
-  return (
-    <form onSubmit={onSubmit} className="space-y-4">
-      <h1 className="text-xl font-semibold">Criar conta</h1>
-      <TextField label="Nome" name="name" autoComplete="name" required />
-      <TextField label="E-mail" name="email" type="email" autoComplete="email" required />
-      <TextField label="Senha" name="password" type="password" autoComplete="new-password" minLength={8} required />
-      {error && (
-        <p role="alert" className="text-sm text-red-400">
-          {error}
-        </p>
-      )}
-      <button
-        type="submit"
-        disabled={pending}
-        className="w-full rounded-md bg-red-600 py-2 font-medium text-white disabled:opacity-60"
-      >
-        {pending ? "Criando..." : "Criar conta"}
-      </button>
-      <p className="text-center text-sm text-neutral-400">
-        Já tem conta?{" "}
-        <Link href="/entrar" className="text-red-400 underline">
-          Entrar
-        </Link>
-      </p>
-    </form>
-  );
-}
-```
-
-- [ ] **Passo 7: Área logada (layout, catálogo provisório e Conta)**
-
-Criar `src/app/(app)/layout.tsx`:
-
-```tsx
-import { NavBar } from "@/components/NavBar";
-
-export default function AppLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="min-h-dvh">
-      <NavBar />
-      <main className="pb-16 md:pb-0">{children}</main>
-    </div>
-  );
-}
-```
-
-Criar `src/app/(app)/page.tsx` (provisório; a Tarefa 5 substitui):
-
-```tsx
-import { requirePageSession } from "@/lib/session";
-
-export default async function CatalogoPage() {
-  await requirePageSession("/");
-  return <h1 className="p-6 text-2xl font-semibold">Catálogo</h1>;
-}
-```
-
-Criar `src/app/(app)/conta/page.tsx`:
-
-```tsx
-import { requirePageSession } from "@/lib/session";
-import { SignOutButton } from "./SignOutButton";
-
-export default async function ContaPage() {
-  const session = await requirePageSession("/conta");
-  return (
-    <div className="mx-auto max-w-md space-y-6 p-6">
-      <h1 className="text-2xl font-semibold">Conta</h1>
-      <dl className="space-y-2 text-sm">
-        <div>
-          <dt className="text-neutral-400">Nome</dt>
-          <dd>{session.user.name}</dd>
-        </div>
-        <div>
-          <dt className="text-neutral-400">E-mail</dt>
-          <dd>{session.user.email}</dd>
-        </div>
-      </dl>
-      <SignOutButton />
-    </div>
-  );
-}
-```
-
-Criar `src/app/(app)/conta/SignOutButton.tsx`:
-
-```tsx
-"use client";
-
-import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { authClient } from "@/lib/auth-client";
-
-export function SignOutButton() {
-  const router = useRouter();
-  const [pending, setPending] = useState(false);
-
-  async function signOut() {
-    setPending(true);
-    await authClient.signOut();
-    router.replace("/entrar");
-    router.refresh();
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={signOut}
-      disabled={pending}
-      className="w-full rounded-md border border-neutral-700 py-2 text-sm disabled:opacity-60"
-    >
-      Sair
-    </button>
-  );
-}
-```
-
-- [ ] **Passo 8: Configurar o Playwright**
-
-Criar `playwright.config.ts`:
-
-```ts
-import { loadEnvConfig } from "@next/env";
-import { defineConfig, devices } from "@playwright/test";
-
-loadEnvConfig(process.cwd());
-
-const PORT = 3100;
-
-const appEnv = {
-  DATABASE_URL: process.env.DATABASE_URL_TEST ?? "",
-  TMDB_API_TOKEN: "test-token",
-  TMDB_BASE_URL: "http://localhost:4010/3",
-  NETFLIX_PROVIDER_IDS: "8",
-  BETTER_AUTH_SECRET: "segredo-de-teste-e2e-com-mais-de-32-caracteres",
-  BETTER_AUTH_URL: `http://localhost:${PORT}`,
-  AUTH_RATE_LIMIT_ENABLED: "false",
-  SMTP_HOST: "localhost",
-  SMTP_PORT: "1025",
-  SMTP_FROM: "claude-nextjs <nao-responda@localhost>",
-};
-
-export default defineConfig({
-  testDir: "./tests/e2e",
-  workers: 1,
-  timeout: 30_000,
-  use: {
-    ...devices["Pixel 7"],
-    baseURL: `http://localhost:${PORT}`,
-    trace: "retain-on-failure",
-  },
-  webServer: [
-    {
-      command: `npm run build && npx next start -p ${PORT}`,
-      url: `http://localhost:${PORT}/entrar`,
-      timeout: 240_000,
-      reuseExistingServer: false,
-      env: appEnv,
-    },
-  ],
-});
-```
-
-Observação: com o limite de tentativas desligado, os testes podem fazer vários logins seguidos. O limite em si é conferido manualmente no Passo 12.
-
-- [ ] **Passo 9: Helpers E2E e testes de contas (falhando)**
-
-Criar `tests/e2e/helpers.ts`:
-
-```ts
-import { expect, type Page } from "@playwright/test";
-
-export const PASSWORD = "senha-segura-123";
-
-export function uniqueEmail(): string {
-  return `e2e-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@teste.com`;
-}
-
-export async function signUp(page: Page, opts: { name?: string; email?: string; password?: string } = {}) {
-  const account = { name: opts.name ?? "Pessoa Teste", email: opts.email ?? uniqueEmail(), password: opts.password ?? PASSWORD };
-  await page.goto("/criar-conta");
-  await page.getByLabel("Nome").fill(account.name);
-  await page.getByLabel("E-mail").fill(account.email);
-  await page.getByLabel("Senha", { exact: true }).fill(account.password);
-  await page.getByRole("button", { name: "Criar conta" }).click();
-  await expect(page).toHaveURL("/");
-  return account;
-}
-
-export async function logIn(page: Page, email: string, password: string) {
-  await page.getByLabel("E-mail").fill(email);
-  await page.getByLabel("Senha", { exact: true }).fill(password);
-  await page.getByRole("button", { name: "Entrar" }).click();
-}
-
-export async function logOut(page: Page) {
-  await page.goto("/conta");
-  await page.getByRole("button", { name: "Sair" }).click();
-  await expect(page).toHaveURL(/\/entrar/);
-}
-```
-
-Criar `tests/e2e/auth.spec.ts`:
-
-```ts
-import { expect, test } from "@playwright/test";
-import { logIn, logOut, PASSWORD, signUp } from "./helpers";
-
-test("página protegida leva ao login e volta para ela depois de entrar", async ({ page }) => {
-  const account = await signUp(page);
-  await logOut(page);
-
-  await page.goto("/conta");
-  await expect(page).toHaveURL("/entrar?volta=%2Fconta");
-
-  await logIn(page, account.email, account.password);
-  await expect(page).toHaveURL("/conta");
-  await expect(page.getByText(account.email)).toBeVisible();
-});
-
-test("senha errada e e-mail inexistente mostram a mesma mensagem", async ({ page }) => {
-  const account = await signUp(page);
-  await logOut(page);
-
-  await logIn(page, account.email, "senha-errada-999");
-  await expect(page.getByRole("alert")).toHaveText("E-mail ou senha incorretos.");
-
-  await logIn(page, "ninguem@teste.com", PASSWORD);
-  await expect(page.getByRole("alert")).toHaveText("E-mail ou senha incorretos.");
-});
-
-test("cadastro com e-mail já usado avisa", async ({ page }) => {
-  const account = await signUp(page);
-  await logOut(page);
-
-  await page.goto("/criar-conta");
-  await page.getByLabel("Nome").fill("Outra Pessoa");
-  await page.getByLabel("E-mail").fill(account.email);
-  await page.getByLabel("Senha", { exact: true }).fill(PASSWORD);
-  await page.getByRole("button", { name: "Criar conta" }).click();
-  await expect(page.getByRole("alert")).toHaveText("Este e-mail já tem conta. Entre ou use outro e-mail.");
-});
-
-test("a sessão vale por 7 dias", async ({ page, context }) => {
-  await signUp(page);
-  const cookie = (await context.cookies()).find((c) => c.name.includes("session_token"));
-  expect(cookie).toBeDefined();
-  const daysLeft = (cookie!.expires * 1000 - Date.now()) / (1000 * 60 * 60 * 24);
-  expect(daysLeft).toBeGreaterThan(6.9);
-  expect(daysLeft).toBeLessThan(7.1);
-});
-
-test("sair encerra a sessão", async ({ page }) => {
-  await signUp(page);
-  await logOut(page);
-  await page.goto("/");
-  await expect(page).toHaveURL("/entrar?volta=%2F");
-});
-```
-
-Rodar: `npm run test:e2e`. Se este passo for feito antes dos Passos 4 a 7, o esperado é FALHA. Se a implementação já existe, prossiga para o Passo 10.
-
-- [ ] **Passo 10: Rodar todos os testes**
-
-```bash
-docker compose up -d
 npm test
-npm run test:e2e
+npm run lint
+npm run build
 ```
 
-Esperado: os testes unitários PASSAM e os 5 testes E2E PASSAM. Pare o `npm run dev` antes do E2E, porque os dois usam a pasta `.next`.
+Esperado: os testes passam, o lint não mostra erros e o build termina com sucesso. Rode `npm run dev`, abra http://localhost:3000, veja "Catálogo de Filmes" e encerre com Ctrl+C.
 
-- [ ] **Passo 11: Conferir no navegador**
-
-Rodar `npm run dev`, abrir http://localhost:3000. Deve redirecionar para `/entrar`. Crie uma conta, veja o "Catálogo" provisório e a tela Conta, e clique em Sair.
-
-- [ ] **Passo 12: Conferir o limite de tentativas (manual)**
-
-Com `npm run dev` rodando:
-
-```bash
-for i in 1 2 3 4 5 6 7; do
-  curl -s -o /dev/null -w "%{http_code}\n" -X POST http://localhost:3000/api/auth/sign-in/email \
-    -H "Content-Type: application/json" -H "Origin: http://localhost:3000" -H "X-Forwarded-For: 203.0.113.9" \
-    -d '{"email":"ninguem@teste.com","password":"errada123"}'
-done
-```
-
-Esperado: as primeiras respostas são `401` e, a partir da 6ª, `429`.
-
-- [ ] **Passo 13: Commit e push**
+- [ ] **Passo 10: Commit**
 
 ```bash
 git add -A
-git commit -m "feat: contas com cadastro, login, sessão semanal e páginas protegidas
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
-git push
+git status --short   # conferir: .env NÃO pode aparecer
+git commit -m "chore: base do projeto com Next.js, Vitest e Supabase local"
 ```
+
+(Adicione a linha `Co-Authored-By:` conforme a restrição global.)
+
+- [ ] **Passo 11: Conectar o Vercel (ação manual do usuário)**
+
+Peça ao usuário:
+1. entrar em https://vercel.com com a conta do GitHub (**Sign up / Continue with GitHub**, plano **Hobby**);
+2. clicar em **Add New → Project**, importar `jose-cad/claude-nextjs` e clicar em **Deploy**, sem alterar nada (o Vercel detecta o Next.js);
+3. confirmar em **Settings → Git** que a **Production Branch** é `main`.
+
+O primeiro deploy publica o que está na `main` (só documentos). Pode falhar por ainda não haver app, o que é esperado. Daqui em diante, cada PR recebe uma prévia.
+
+Observação para o usuário: as prévias dos PRs vêm protegidas pelo login do Vercel. Para abrir no celular, faça login no Vercel pelo navegador do celular, ou desligue a proteção em **Settings → Deployment Protection**.
+
+- [ ] **Passo 12: Push e PR**
+
+```bash
+git push -u origin tarefa-01-base
+gh pr create --base main --head tarefa-01-base --title "Base do projeto: Next.js, Vitest e Supabase local" --body "$(cat <<'EOF'
+## O que muda
+- Projeto Next.js 16 (TypeScript, Tailwind, App Router) com página provisória
+- Vitest e validação das variáveis do servidor
+- Supabase local configurado (sem confirmação de e-mail, senha mínima de 8)
+
+## Como testar
+- Abra a prévia do Vercel (link no comentário do bot) e veja "Catálogo de Filmes"
+- Local: `npx supabase start`, `npm test`, `npm run dev`
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+EOF
+)"
+```
+
+**Pare aqui** e avise o usuário que o PR está pronto para revisão e "Squash and merge".
 
 ---
 
-### Tarefa 4: Camada do TMDB (cliente, cache, Netflix, filmes)
+### Tarefa 2: Camada do TMDB
+
+**Branch:** `tarefa-02-tmdb`
 
 **Arquivos:**
-- Criar: `src/lib/tmdb/types.ts`, `src/lib/tmdb/client.ts`, `src/lib/tmdb/cache.ts`, `src/lib/netflix.ts`, `src/lib/tmdb/movies.ts`, `src/lib/tmdb/index.ts`, `src/lib/images.ts`
-- Testes: `tests/unit/tmdb-client.test.ts`, `tests/unit/cache.test.ts`, `tests/unit/netflix.test.ts`, `tests/unit/movies.test.ts`, `tests/unit/images.test.ts`
-- Modificar: `.env`, `.env.example` (IDs da Netflix)
+- Criar: `src/lib/tmdb/types.ts`, `src/lib/tmdb/client.ts`, `src/lib/netflix.ts`, `src/lib/tmdb/movies.ts`, `src/lib/tmdb/index.ts`, `src/lib/images.ts`
+- Testes: `tests/unit/tmdb-client.test.ts`, `tests/unit/netflix.test.ts`, `tests/unit/movies.test.ts`, `tests/unit/images.test.ts`
+- Modificar: `.env`, `.env.example`
 
 **Interfaces:**
 - Consome: `getEnv()`.
 - Produz:
   - tipos `MovieSummary { id; title; posterPath: string|null; year: number|null; onNetflix: boolean|null }`, `MovieDetails` (= `MovieSummary` + `overview: string|null`, `runtimeMinutes: number|null`, `genres: string[]`, `cast: string[]`, `trailerUrl: string|null`, `backdropPath: string|null`), `Page<T> { items; page; totalPages }`, `Genre { id; name }` e `CatalogSort = "popular" | "top_rated"`;
-  - `TmdbUnavailableError`, `TmdbNotFoundError`, `createTmdbFetch(opts): TmdbFetch`, `TtlCache`, `TTL`, `isOnNetflix(providers, netflixIds, region?)`;
-  - `createMovieService(deps): MovieService`, com `discoverNetflix({page, genreId?, sort})`, `searchMovies(query, page)`, `getMovieDetails(id)`, `getGenres()` e `getNetflixAvailability(id)`;
+  - `TmdbUnavailableError`, `TmdbNotFoundError`, `createTmdbFetch(opts): TmdbFetch` (com a assinatura `(path, params, revalidateSeconds) => Promise<unknown>`), `REVALIDATE` e `isOnNetflix(providers, netflixIds, region?)`;
+  - `createMovieService({ tmdb, netflixIds })`, com `discoverNetflix({page, genreId?, sort})`, `searchMovies(query, page)`, `getMovieDetails(id)`, `getGenres()` e `getNetflixAvailability(id)`;
   - `getMovieService()` e `posterUrl(path, size)`.
 
-- [ ] **Passo 1: Confirmar os IDs da Netflix no Brasil**
+- [ ] **Passo 1: Criar a branch**
+
+```bash
+git switch main && git pull && git switch -c tarefa-02-tmdb
+```
+
+- [ ] **Passo 2: Token do TMDB e IDs da Netflix (ação manual + conferência)**
+
+Peça ao usuário para criar uma conta em https://www.themoviedb.org, abrir *Configurações → API*, solicitar uma chave de desenvolvedor (uso pessoal) e colar o **Token de Leitura da API** (o token longo) em `TMDB_API_TOKEN` no `.env`.
+
+Depois confira os IDs da Netflix no Brasil:
 
 ```bash
 source <(grep TMDB_API_TOKEN .env)
@@ -1471,9 +419,9 @@ curl -s -H "Authorization: Bearer $TMDB_API_TOKEN" \
   | python3 -c "import json,sys; [print(p['provider_id'], p['provider_name']) for p in json.load(sys.stdin)['results'] if 'netflix' in p['provider_name'].lower()]"
 ```
 
-Esperado: uma ou mais linhas, por exemplo `8 Netflix` (e talvez `1796 Netflix Standard with Ads`). Coloque **todos** os IDs em `NETFLIX_PROVIDER_IDS` no `.env` e no `.env.example`, separados por vírgula (ex.: `NETFLIX_PROVIDER_IDS=8,1796`).
+Esperado: uma ou mais linhas, por exemplo `8 Netflix` (e talvez `1796 Netflix Standard with Ads`). Coloque **todos** os IDs em `NETFLIX_PROVIDER_IDS` no `.env` e no `.env.example`, separados por vírgula.
 
-- [ ] **Passo 2: Tipos**
+- [ ] **Passo 3: Tipos**
 
 Criar `src/lib/tmdb/types.ts`:
 
@@ -1530,7 +478,7 @@ export type TmdbDetails = TmdbMovieResult & {
 };
 ```
 
-- [ ] **Passo 3: Testes do cliente HTTP, do cache, da Netflix e das imagens (falhando)**
+- [ ] **Passo 4: Testes do cliente HTTP, da Netflix e das imagens (falhando)**
 
 Criar `tests/unit/tmdb-client.test.ts`:
 
@@ -1538,85 +486,43 @@ Criar `tests/unit/tmdb-client.test.ts`:
 import { describe, expect, it, vi } from "vitest";
 import { createTmdbFetch, TmdbNotFoundError, TmdbUnavailableError } from "@/lib/tmdb/client";
 
-function okResponse(body: unknown, status = 200) {
+function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 }
 
 describe("createTmdbFetch", () => {
-  it("envia o token e codifica parâmetros com acento e símbolos", async () => {
-    const fetchImpl = vi.fn(async () => okResponse({ ok: true }));
+  it("envia o token, codifica parâmetros e pede cache com prazo", async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ ok: true }));
     const tmdb = createTmdbFetch({ baseUrl: "https://api.exemplo/3", token: "abc", fetchImpl });
-    await tmdb("/search/movie", { query: "Ação & Aventura", page: 2, ignorado: undefined });
+    await tmdb("/search/movie", { query: "Ação & Aventura", page: 2, ignorado: undefined }, 3600);
 
-    const [url, init] = fetchImpl.mock.calls[0] as unknown as [URL, RequestInit];
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [URL, RequestInit & { next?: { revalidate?: number } }];
     expect(url.pathname).toBe("/3/search/movie");
     expect(url.searchParams.get("query")).toBe("Ação & Aventura");
     expect(url.searchParams.get("page")).toBe("2");
     expect(url.searchParams.has("ignorado")).toBe(false);
     expect((init.headers as Record<string, string>).Authorization).toBe("Bearer abc");
+    expect(init.next?.revalidate).toBe(3600);
   });
 
   it("falha de rede vira TmdbUnavailableError", async () => {
     const tmdb = createTmdbFetch({ baseUrl: "https://api.exemplo/3", token: "abc", fetchImpl: async () => { throw new TypeError("fetch failed"); } });
-    await expect(tmdb("/x")).rejects.toBeInstanceOf(TmdbUnavailableError);
+    await expect(tmdb("/x", {}, 60)).rejects.toBeInstanceOf(TmdbUnavailableError);
   });
 
   it("timeout vira TmdbUnavailableError", async () => {
     const tmdb = createTmdbFetch({ baseUrl: "https://api.exemplo/3", token: "abc", fetchImpl: async () => { throw new DOMException("timeout", "TimeoutError"); } });
-    await expect(tmdb("/x")).rejects.toBeInstanceOf(TmdbUnavailableError);
+    await expect(tmdb("/x", {}, 60)).rejects.toBeInstanceOf(TmdbUnavailableError);
   });
 
   it("erro 5xx vira TmdbUnavailableError", async () => {
-    const tmdb = createTmdbFetch({ baseUrl: "https://api.exemplo/3", token: "abc", fetchImpl: async () => okResponse({}, 503) });
-    await expect(tmdb("/x")).rejects.toBeInstanceOf(TmdbUnavailableError);
+    const tmdb = createTmdbFetch({ baseUrl: "https://api.exemplo/3", token: "abc", fetchImpl: async () => jsonResponse({}, 503) });
+    await expect(tmdb("/x", {}, 60)).rejects.toBeInstanceOf(TmdbUnavailableError);
   });
 
   it("404 vira TmdbNotFoundError", async () => {
-    const tmdb = createTmdbFetch({ baseUrl: "https://api.exemplo/3", token: "abc", fetchImpl: async () => okResponse({}, 404) });
-    await expect(tmdb("/movie/1")).rejects.toBeInstanceOf(TmdbNotFoundError);
-  });
-});
-```
-
-Criar `tests/unit/cache.test.ts`:
-
-```ts
-import { describe, expect, it, vi } from "vitest";
-import { TtlCache } from "@/lib/tmdb/cache";
-
-describe("TtlCache", () => {
-  it("reaproveita o valor dentro da validade", async () => {
-    const cache = new TtlCache(10, () => 1000);
-    const load = vi.fn(async () => "valor");
-    await cache.getOrSet("k", 500, load);
-    expect(await cache.getOrSet("k", 500, load)).toBe("valor");
-    expect(load).toHaveBeenCalledTimes(1);
-  });
-
-  it("busca de novo depois que vence", async () => {
-    let now = 1000;
-    const cache = new TtlCache(10, () => now);
-    const load = vi.fn(async () => now);
-    await cache.getOrSet("k", 500, load);
-    now = 1600;
-    expect(await cache.getOrSet("k", 500, load)).toBe(1600);
-    expect(load).toHaveBeenCalledTimes(2);
-  });
-
-  it("não guarda erros", async () => {
-    const cache = new TtlCache(10, () => 1000);
-    await expect(cache.getOrSet("k", 500, async () => { throw new Error("falhou"); })).rejects.toThrow("falhou");
-    expect(await cache.getOrSet("k", 500, async () => "ok")).toBe("ok");
-  });
-
-  it("descarta o mais antigo ao passar do limite", async () => {
-    const cache = new TtlCache(2, () => 1000);
-    await cache.getOrSet("a", 500, async () => 1);
-    await cache.getOrSet("b", 500, async () => 2);
-    await cache.getOrSet("c", 500, async () => 3);
-    const load = vi.fn(async () => 10);
-    expect(await cache.getOrSet("a", 500, load)).toBe(10);
-    expect(load).toHaveBeenCalledTimes(1);
+    const tmdb = createTmdbFetch({ baseUrl: "https://api.exemplo/3", token: "abc", fetchImpl: async () => jsonResponse({}, 404) });
+    await expect(tmdb("/movie/1", {}, 60)).rejects.toBeInstanceOf(TmdbNotFoundError);
   });
 });
 ```
@@ -1666,7 +572,7 @@ describe("posterUrl", () => {
 
 Rodar: `npm test`. Esperado: FALHA (módulos inexistentes).
 
-- [ ] **Passo 4: Implementar o cliente, o cache, a Netflix e as imagens**
+- [ ] **Passo 5: Implementar o cliente, a Netflix e as imagens**
 
 Criar `src/lib/tmdb/client.ts`:
 
@@ -1675,7 +581,7 @@ export class TmdbUnavailableError extends Error {}
 export class TmdbNotFoundError extends Error {}
 
 export type TmdbParams = Record<string, string | number | undefined>;
-export type TmdbFetch = (path: string, params?: TmdbParams) => Promise<unknown>;
+export type TmdbFetch = (path: string, params: TmdbParams, revalidateSeconds: number) => Promise<unknown>;
 
 export function createTmdbFetch(opts: {
   baseUrl: string;
@@ -1686,7 +592,7 @@ export function createTmdbFetch(opts: {
   const fetchImpl = opts.fetchImpl ?? fetch;
   const base = opts.baseUrl.replace(/\/$/, "");
 
-  return async (path, params = {}) => {
+  return async (path, params, revalidateSeconds) => {
     const url = new URL(base + path);
     for (const [key, value] of Object.entries(params)) {
       if (value !== undefined && value !== "") url.searchParams.set(key, String(value));
@@ -1697,8 +603,9 @@ export function createTmdbFetch(opts: {
       res = await fetchImpl(url, {
         headers: { Authorization: `Bearer ${opts.token}`, Accept: "application/json" },
         signal: AbortSignal.timeout(opts.timeoutMs ?? 8000),
-        cache: "no-store",
-      });
+        // cache de dados do Next.js: a resposta é reaproveitada até vencer o prazo (também no Vercel)
+        next: { revalidate: revalidateSeconds },
+      } as RequestInit);
     } catch {
       throw new TmdbUnavailableError("O TMDB não respondeu");
     }
@@ -1710,44 +617,6 @@ export function createTmdbFetch(opts: {
     }
     return res.json();
   };
-}
-```
-
-Criar `src/lib/tmdb/cache.ts`:
-
-```ts
-const HOUR = 60 * 60 * 1000;
-
-export const TTL = {
-  catalog: 6 * HOUR,
-  search: 6 * HOUR,
-  details: 24 * HOUR,
-  providers: 24 * HOUR,
-  genres: 7 * 24 * HOUR,
-};
-
-/** Cache em memória com validade. Erros nunca são guardados. */
-export class TtlCache {
-  private store = new Map<string, { value: unknown; expiresAt: number }>();
-
-  constructor(
-    private maxEntries = 5000,
-    private now: () => number = Date.now,
-  ) {}
-
-  async getOrSet<T>(key: string, ttlMs: number, load: () => Promise<T>): Promise<T> {
-    const hit = this.store.get(key);
-    if (hit && hit.expiresAt > this.now()) return hit.value as T;
-
-    const value = await load();
-    this.store.delete(key);
-    this.store.set(key, { value, expiresAt: this.now() + ttlMs });
-    if (this.store.size > this.maxEntries) {
-      const oldest = this.store.keys().next().value;
-      if (oldest !== undefined) this.store.delete(oldest);
-    }
-    return value;
-  }
 }
 ```
 
@@ -1773,22 +642,21 @@ export function posterUrl(path: string | null, size: PosterSize): string | null 
 }
 ```
 
-Rodar: `npm test`. Esperado: PASSAM os testes de cliente, cache, Netflix e imagens.
+Rodar: `npm test`. Esperado: PASSA.
 
-- [ ] **Passo 5: Testes do serviço de filmes (falhando)**
+- [ ] **Passo 6: Testes do serviço de filmes (falhando)**
 
 Criar `tests/unit/movies.test.ts`:
 
 ```ts
 import { describe, expect, it } from "vitest";
-import { TtlCache } from "@/lib/tmdb/cache";
 import { TmdbUnavailableError, type TmdbFetch } from "@/lib/tmdb/client";
-import { createMovieService, MAX_PAGES, MIN_VOTES_TOP_RATED, pickTrailerUrl } from "@/lib/tmdb/movies";
+import { createMovieService, MAX_PAGES, MIN_VOTES_TOP_RATED, pickTrailerUrl, REVALIDATE } from "@/lib/tmdb/movies";
 
 function fakeTmdb(routes: Record<string, unknown>) {
-  const calls: { path: string; params: Record<string, unknown> }[] = [];
-  const fn: TmdbFetch = async (path, params = {}) => {
-    calls.push({ path, params });
+  const calls: { path: string; params: Record<string, unknown>; revalidate: number }[] = [];
+  const fn: TmdbFetch = async (path, params, revalidate) => {
+    calls.push({ path, params, revalidate });
     const route = routes[path];
     if (route instanceof Error) throw route;
     if (route === undefined) throw new Error(`rota não simulada: ${path}`);
@@ -1803,11 +671,11 @@ const movie = (id: number, extra: object = {}) => ({ id, title: `Filme ${id}`, p
 
 function service(routes: Record<string, unknown>) {
   const tmdb = fakeTmdb(routes);
-  return { svc: createMovieService({ tmdb: tmdb.fn, cache: new TtlCache(), netflixIds: [8, 1796] }), calls: tmdb.calls };
+  return { svc: createMovieService({ tmdb: tmdb.fn, netflixIds: [8, 1796] }), calls: tmdb.calls };
 }
 
 describe("discoverNetflix", () => {
-  it("filtra por Netflix no Brasil, só assinatura, em português", async () => {
+  it("filtra por Netflix no Brasil, só assinatura, em português, com cache de catálogo", async () => {
     const { svc, calls } = service({ "/discover/movie": { page: 1, total_pages: 3, results: [movie(1)] } });
     const page = await svc.discoverNetflix({ page: 1, sort: "popular", genreId: 35 });
 
@@ -1821,6 +689,7 @@ describe("discoverNetflix", () => {
       page: 1,
     });
     expect(calls[0].params["vote_count.gte"]).toBeUndefined();
+    expect(calls[0].revalidate).toBe(REVALIDATE.catalog);
     expect(page).toEqual({ items: [{ id: 1, title: "Filme 1", posterPath: "/p1.jpg", year: 2021, onNetflix: true }], page: 1, totalPages: 3 });
   });
 
@@ -1834,18 +703,11 @@ describe("discoverNetflix", () => {
     const { svc } = service({ "/discover/movie": { page: 1, total_pages: 900, results: [] } });
     expect((await svc.discoverNetflix({ page: 1, sort: "popular" })).totalPages).toBe(MAX_PAGES);
   });
-
-  it("usa o cache para a mesma página", async () => {
-    const { svc, calls } = service({ "/discover/movie": { page: 1, total_pages: 1, results: [] } });
-    await svc.discoverNetflix({ page: 1, sort: "popular" });
-    await svc.discoverNetflix({ page: 1, sort: "popular" });
-    expect(calls).toHaveLength(1);
-  });
 });
 
 describe("searchMovies", () => {
   it("marca cada resultado como na Netflix, fora dela ou desconhecido", async () => {
-    const { svc } = service({
+    const { svc, calls } = service({
       "/search/movie": { page: 1, total_pages: 1, results: [movie(1), movie(2), movie(3)] },
       "/movie/1/watch/providers": onNetflix,
       "/movie/2/watch/providers": offNetflix,
@@ -1853,6 +715,8 @@ describe("searchMovies", () => {
     });
     const page = await svc.searchMovies("filme", 1);
     expect(page.items.map((m) => m.onNetflix)).toEqual([true, false, null]);
+    expect(calls.find((c) => c.path === "/search/movie")?.revalidate).toBe(REVALIDATE.search);
+    expect(calls.find((c) => c.path === "/movie/1/watch/providers")?.revalidate).toBe(REVALIDATE.providers);
   });
 
   it("propaga a falha quando a própria busca falha", async () => {
@@ -1877,6 +741,7 @@ describe("getMovieDetails", () => {
     });
     const details = await svc.getMovieDetails(7);
     expect(calls[0].params).toMatchObject({ append_to_response: "credits,videos,watch/providers", language: "pt-BR" });
+    expect(calls[0].revalidate).toBe(REVALIDATE.details);
     expect(details).toEqual({
       id: 7,
       title: "Filme 7",
@@ -1926,13 +791,12 @@ describe("getGenres", () => {
 
 Rodar: `npm test`. Esperado: FALHA (`@/lib/tmdb/movies` inexistente).
 
-- [ ] **Passo 6: Implementar o serviço de filmes**
+- [ ] **Passo 7: Implementar o serviço de filmes**
 
 Criar `src/lib/tmdb/movies.ts`:
 
 ```ts
 import { isOnNetflix } from "@/lib/netflix";
-import { TTL, type TtlCache } from "./cache";
 import type { TmdbFetch } from "./client";
 import type {
   CatalogSort,
@@ -1951,6 +815,16 @@ export const MAX_PAGES = 500; // o TMDB não entrega além da página 500
 export const MIN_VOTES_TOP_RATED = 200;
 const LANGUAGE = "pt-BR";
 const REGION = "BR";
+const HOUR = 60 * 60;
+
+/** Prazos (em segundos) do cache de dados do Next.js para cada tipo de resposta. */
+export const REVALIDATE = {
+  catalog: 6 * HOUR,
+  search: 6 * HOUR,
+  details: 24 * HOUR,
+  providers: 24 * HOUR,
+  genres: 7 * 24 * HOUR,
+};
 
 export function toYear(date: string | undefined): number | null {
   if (!date) return null;
@@ -1970,13 +844,9 @@ export function pickTrailerUrl(videos: TmdbVideo[] | undefined): string | null {
 
 export type MovieService = ReturnType<typeof createMovieService>;
 
-export function createMovieService({ tmdb, cache, netflixIds }: { tmdb: TmdbFetch; cache: TtlCache; netflixIds: number[] }) {
+export function createMovieService({ tmdb, netflixIds }: { tmdb: TmdbFetch; netflixIds: number[] }) {
   async function getNetflixAvailability(movieId: number): Promise<boolean> {
-    const providers = await cache.getOrSet(
-      `providers:${movieId}`,
-      TTL.providers,
-      () => tmdb(`/movie/${movieId}/watch/providers`) as Promise<TmdbProviders>,
-    );
+    const providers = (await tmdb(`/movie/${movieId}/watch/providers`, {}, REVALIDATE.providers)) as TmdbProviders;
     return isOnNetflix(providers, netflixIds, REGION);
   }
 
@@ -1992,22 +862,21 @@ export function createMovieService({ tmdb, cache, netflixIds }: { tmdb: TmdbFetc
     getNetflixAvailability,
 
     async discoverNetflix({ page, genreId, sort }: { page: number; genreId?: number; sort: CatalogSort }): Promise<Page<MovieSummary>> {
-      const data = await cache.getOrSet(
-        `discover:${sort}:${genreId ?? "all"}:${page}`,
-        TTL.catalog,
-        () =>
-          tmdb("/discover/movie", {
-            language: LANGUAGE,
-            watch_region: REGION,
-            with_watch_providers: netflixIds.join("|"),
-            with_watch_monetization_types: "flatrate",
-            sort_by: sort === "top_rated" ? "vote_average.desc" : "popularity.desc",
-            "vote_count.gte": sort === "top_rated" ? MIN_VOTES_TOP_RATED : undefined,
-            with_genres: genreId,
-            include_adult: "false",
-            page,
-          }) as Promise<TmdbPaged<TmdbMovieResult>>,
-      );
+      const data = (await tmdb(
+        "/discover/movie",
+        {
+          language: LANGUAGE,
+          watch_region: REGION,
+          with_watch_providers: netflixIds.join("|"),
+          with_watch_monetization_types: "flatrate",
+          sort_by: sort === "top_rated" ? "vote_average.desc" : "popularity.desc",
+          "vote_count.gte": sort === "top_rated" ? MIN_VOTES_TOP_RATED : undefined,
+          with_genres: genreId,
+          include_adult: "false",
+          page,
+        },
+        REVALIDATE.catalog,
+      )) as TmdbPaged<TmdbMovieResult>;
       return {
         items: data.results.map((m) => toSummary(m, true)),
         page: data.page,
@@ -2016,26 +885,21 @@ export function createMovieService({ tmdb, cache, netflixIds }: { tmdb: TmdbFetc
     },
 
     async searchMovies(query: string, page: number): Promise<Page<MovieSummary>> {
-      const data = await cache.getOrSet(
-        `search:${query.toLowerCase()}:${page}`,
-        TTL.search,
-        () => tmdb("/search/movie", { query, language: LANGUAGE, include_adult: "false", page }) as Promise<TmdbPaged<TmdbMovieResult>>,
-      );
+      const data = (await tmdb(
+        "/search/movie",
+        { query, language: LANGUAGE, include_adult: "false", page },
+        REVALIDATE.search,
+      )) as TmdbPaged<TmdbMovieResult>;
       const items = await Promise.all(data.results.map(async (m) => toSummary(m, await availabilityOrNull(m.id))));
       return { items, page: data.page, totalPages: Math.min(data.total_pages, MAX_PAGES) };
     },
 
     async getMovieDetails(movieId: number): Promise<MovieDetails> {
-      const d = await cache.getOrSet(
-        `details:${movieId}`,
-        TTL.details,
-        () =>
-          tmdb(`/movie/${movieId}`, {
-            language: LANGUAGE,
-            append_to_response: "credits,videos,watch/providers",
-            include_video_language: "pt,en",
-          }) as Promise<TmdbDetails>,
-      );
+      const d = (await tmdb(
+        `/movie/${movieId}`,
+        { language: LANGUAGE, append_to_response: "credits,videos,watch/providers", include_video_language: "pt,en" },
+        REVALIDATE.details,
+      )) as TmdbDetails;
       return {
         ...toSummary(d, isOnNetflix(d["watch/providers"], netflixIds, REGION)),
         overview: d.overview?.trim() || null,
@@ -2051,11 +915,7 @@ export function createMovieService({ tmdb, cache, netflixIds }: { tmdb: TmdbFetc
     },
 
     async getGenres(): Promise<Genre[]> {
-      const data = await cache.getOrSet(
-        "genres",
-        TTL.genres,
-        () => tmdb("/genre/movie/list", { language: LANGUAGE }) as Promise<{ genres: Genre[] }>,
-      );
+      const data = (await tmdb("/genre/movie/list", { language: LANGUAGE }, REVALIDATE.genres)) as { genres: Genre[] };
       return [...data.genres].sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
     },
   };
@@ -2067,59 +927,77 @@ Criar `src/lib/tmdb/index.ts`:
 ```ts
 import "server-only";
 import { getEnv } from "@/lib/env";
-import { TtlCache } from "./cache";
 import { createTmdbFetch } from "./client";
 import { createMovieService, type MovieService } from "./movies";
 
-const globalForTmdb = globalThis as unknown as { __movieService?: MovieService };
+let cached: MovieService | undefined;
 
 export function getMovieService(): MovieService {
-  if (!globalForTmdb.__movieService) {
+  if (!cached) {
     const env = getEnv();
-    globalForTmdb.__movieService = createMovieService({
+    cached = createMovieService({
       tmdb: createTmdbFetch({ baseUrl: env.TMDB_BASE_URL, token: env.TMDB_API_TOKEN }),
-      cache: new TtlCache(),
       netflixIds: env.NETFLIX_PROVIDER_IDS,
     });
   }
-  return globalForTmdb.__movieService;
+  return cached;
 }
 ```
 
-- [ ] **Passo 7: Rodar os testes e ver que passam**
+- [ ] **Passo 8: Rodar os testes**
 
-Rodar: `npm test`
-Esperado: PASSA, com todos os testes unitários verdes.
+Rodar: `npm test && npm run lint`
+Esperado: PASSA, sem erros de lint.
 
-- [ ] **Passo 8: Commit e push**
+- [ ] **Passo 9: Commit, push e PR**
 
 ```bash
 git add -A
-git commit -m "feat: camada do TMDB com cache, disponibilidade na Netflix e conversão de dados
+git commit -m "feat: camada do TMDB com disponibilidade na Netflix e cache do Next.js"
+git push -u origin tarefa-02-tmdb
+gh pr create --base main --head tarefa-02-tmdb --title "Camada do TMDB" --body "$(cat <<'EOF'
+## O que muda
+- Cliente do TMDB com timeout, erros tipados e cache de dados do Next.js
+- Serviço de filmes: catálogo da Netflix BR, busca com selo de disponibilidade, detalhes e gêneros
+- Só testes unitários nesta etapa (ainda sem tela)
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
-git push
+## Como testar
+- `npm test`
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+EOF
+)"
 ```
+
+**Pare aqui** e espere o "Squash and merge".
 
 ---
 
-### Tarefa 5: Catálogo (API, tela, rolagem infinita, busca)
+### Tarefa 3: Catálogo público (API, tela, rolagem infinita, busca)
+
+**Branch:** `tarefa-03-catalogo`
 
 **Arquivos:**
-- Criar: `src/lib/api/params.ts`, `src/lib/api/http.ts`, `src/app/api/catalogo/route.ts`, `src/app/api/busca/route.ts`, `src/app/api/generos/route.ts`, `src/lib/api-client.ts`, `src/lib/infinite.ts`, `src/hooks/useDebouncedValue.ts`, `src/hooks/useInfiniteMovies.ts`, `src/components/StatusMessage.tsx`, `src/components/NetflixBadge.tsx`, `src/components/MovieCard.tsx`, `src/components/MovieGrid.tsx`, `src/components/InfiniteSentinel.tsx`, `src/components/CatalogToolbar.tsx`, `src/components/CatalogView.tsx`, `tests/mocks/tmdb-server.ts`
+- Criar: `src/lib/api/params.ts`, `src/lib/api/http.ts`, `src/app/api/catalogo/route.ts`, `src/app/api/busca/route.ts`, `src/app/api/generos/route.ts`, `src/lib/api-client.ts`, `src/lib/infinite.ts`, `src/hooks/useDebouncedValue.ts`, `src/hooks/useInfiniteMovies.ts`, `src/components/NavBar.tsx`, `src/components/StatusMessage.tsx`, `src/components/NetflixBadge.tsx`, `src/components/MovieCard.tsx`, `src/components/MovieGrid.tsx`, `src/components/InfiniteSentinel.tsx`, `src/components/CatalogToolbar.tsx`, `src/components/CatalogView.tsx`, `tests/mocks/tmdb-server.ts`, `playwright.config.ts`
 - Testes: `tests/unit/params.test.ts`, `tests/unit/infinite.test.ts`, `tests/e2e/catalog.spec.ts`
-- Modificar: `src/app/(app)/page.tsx`, `playwright.config.ts`
+- Modificar: `src/app/page.tsx`, `src/app/layout.tsx`
 
 **Interfaces:**
-- Consome: `getMovieService()`, `getApiUserId(req)`, `TmdbUnavailableError`, `TmdbNotFoundError`, `posterUrl`, `MovieSummary`, `Page`, `Genre` e `CatalogSort`.
+- Consome: `getMovieService()`, `TmdbUnavailableError`, `TmdbNotFoundError`, `posterUrl`, `MovieSummary`, `Page`, `Genre` e `CatalogSort`.
 - Produz:
-  - funções puras `parsePage`, `parseGenreId`, `parseSort`, `parseMovieId`, `parseQuery`; `jsonError(status, code)`; `withUser(req, handler)`;
-  - `apiFetch<T>(url, init?)`, `NetworkError`, `ServiceUnavailableError`, `ApiError`, `errorMessage(e)`;
-  - `nextPage`, `mergeUnique`, `withPageParam`; `useInfiniteMovies(url)`; `useDebouncedValue(value, ms)`;
-  - componentes `<MovieGrid movies showBadges getMarks? onSelect />`, `<NetflixBadge onNetflix />`, `<StatusMessage>` e `<CatalogView />`;
-  - rotas `GET /api/catalogo?pagina&genero&ordem`, `GET /api/busca?q&pagina` e `GET /api/generos`, todas devolvendo 401 sem sessão e 503 com `{error:"tmdb_unavailable"}`.
+  - funções puras `parsePage`, `parseGenreId`, `parseSort`, `parseMovieId`, `parseQuery`; `jsonError(status, code)` e `tmdbResponse(load)`;
+  - `apiFetch<T>(url, init?)`, `NetworkError`, `ServiceUnavailableError`, `UnauthorizedError`, `ApiError` e `errorMessage(e)`;
+  - `nextPage`, `mergeUnique`, `withPageParam`; `useInfiniteMovies(url)` e `useDebouncedValue(value, ms)`;
+  - os tipos `ListMarks { want; favorite }` e os componentes `<MovieGrid movies showBadges getMarks? onSelect />`, `<NetflixBadge onNetflix />`, `<StatusMessage>`, `<NavBar />` e `<CatalogView />`;
+  - rotas públicas `GET /api/catalogo?pagina&genero&ordem`, `GET /api/busca?q&pagina` e `GET /api/generos`, que devolvem 503 com `{error:"tmdb_unavailable"}` quando o TMDB cai.
 
-- [ ] **Passo 1: Testes das funções puras (falhando)**
+- [ ] **Passo 1: Criar a branch**
+
+```bash
+git switch main && git pull && git switch -c tarefa-03-catalogo
+```
+
+- [ ] **Passo 2: Testes das funções puras (falhando)**
 
 Criar `tests/unit/params.test.ts`:
 
@@ -2192,7 +1070,7 @@ describe("rolagem infinita", () => {
 
 Rodar: `npm test`. Esperado: FALHA (módulos inexistentes).
 
-- [ ] **Passo 2: Implementar as funções puras**
+- [ ] **Passo 3: Implementar as funções puras**
 
 Criar `src/lib/api/params.ts`:
 
@@ -2242,25 +1120,21 @@ export function withPageParam(url: string, page: number): string {
 
 Rodar: `npm test`. Esperado: PASSA.
 
-- [ ] **Passo 3: Rotas da API**
+- [ ] **Passo 4: Rotas da API (públicas)**
 
 Criar `src/lib/api/http.ts`:
 
 ```ts
-import "server-only";
-import { getApiUserId } from "@/lib/session";
 import { TmdbNotFoundError, TmdbUnavailableError } from "@/lib/tmdb/client";
 
 export function jsonError(status: number, error: string): Response {
   return Response.json({ error }, { status });
 }
 
-/** Exige sessão e traduz erros conhecidos em respostas HTTP. */
-export async function withUser(req: Request, handler: (userId: string) => Promise<Response>): Promise<Response> {
-  const userId = await getApiUserId(req);
-  if (!userId) return jsonError(401, "unauthorized");
+/** Responde com os dados do TMDB ou traduz a falha em um código HTTP. */
+export async function tmdbResponse(load: () => Promise<unknown>): Promise<Response> {
   try {
-    return await handler(userId);
+    return Response.json(await load());
   } catch (error) {
     if (error instanceof TmdbUnavailableError) return jsonError(503, "tmdb_unavailable");
     if (error instanceof TmdbNotFoundError) return jsonError(404, "not_found");
@@ -2273,64 +1147,56 @@ export async function withUser(req: Request, handler: (userId: string) => Promis
 Criar `src/app/api/catalogo/route.ts`:
 
 ```ts
+import { tmdbResponse } from "@/lib/api/http";
 import { parseGenreId, parsePage, parseSort } from "@/lib/api/params";
-import { withUser } from "@/lib/api/http";
 import { getMovieService } from "@/lib/tmdb";
 
-export const dynamic = "force-dynamic";
-
 export async function GET(req: Request) {
-  return withUser(req, async () => {
-    const params = new URL(req.url).searchParams;
-    const page = await getMovieService().discoverNetflix({
+  const params = new URL(req.url).searchParams;
+  return tmdbResponse(() =>
+    getMovieService().discoverNetflix({
       page: parsePage(params.get("pagina")),
       genreId: parseGenreId(params.get("genero")),
       sort: parseSort(params.get("ordem")),
-    });
-    return Response.json(page);
-  });
+    }),
+  );
 }
 ```
 
 Criar `src/app/api/busca/route.ts`:
 
 ```ts
+import { tmdbResponse } from "@/lib/api/http";
 import { parsePage, parseQuery } from "@/lib/api/params";
-import { withUser } from "@/lib/api/http";
 import { getMovieService } from "@/lib/tmdb";
 
-export const dynamic = "force-dynamic";
-
 export async function GET(req: Request) {
-  return withUser(req, async () => {
-    const params = new URL(req.url).searchParams;
-    const query = parseQuery(params.get("q"));
-    if (!query) return Response.json({ items: [], page: 1, totalPages: 1 });
-    return Response.json(await getMovieService().searchMovies(query, parsePage(params.get("pagina"))));
-  });
+  const params = new URL(req.url).searchParams;
+  const query = parseQuery(params.get("q"));
+  if (!query) return Response.json({ items: [], page: 1, totalPages: 1 });
+  return tmdbResponse(() => getMovieService().searchMovies(query, parsePage(params.get("pagina"))));
 }
 ```
 
 Criar `src/app/api/generos/route.ts`:
 
 ```ts
-import { withUser } from "@/lib/api/http";
+import { tmdbResponse } from "@/lib/api/http";
 import { getMovieService } from "@/lib/tmdb";
 
-export const dynamic = "force-dynamic";
-
-export async function GET(req: Request) {
-  return withUser(req, async () => Response.json({ genres: await getMovieService().getGenres() }));
+export async function GET() {
+  return tmdbResponse(async () => ({ genres: await getMovieService().getGenres() }));
 }
 ```
 
-- [ ] **Passo 4: Cliente de API do navegador e hooks**
+- [ ] **Passo 5: Cliente de API do navegador e hooks**
 
 Criar `src/lib/api-client.ts`:
 
 ```ts
 export class NetworkError extends Error {}
 export class ServiceUnavailableError extends Error {}
+export class UnauthorizedError extends Error {}
 export class ApiError extends Error {
   constructor(public status: number) {
     super(`HTTP ${status}`);
@@ -2344,10 +1210,7 @@ export async function apiFetch<T>(url: string, init?: RequestInit): Promise<T> {
   } catch {
     throw new NetworkError();
   }
-  if (res.status === 401) {
-    window.location.assign(`/entrar?volta=${encodeURIComponent(window.location.pathname)}`);
-    throw new ApiError(401);
-  }
+  if (res.status === 401) throw new UnauthorizedError();
   if (res.status === 503) throw new ServiceUnavailableError();
   if (!res.ok) throw new ApiError(res.status);
   if (res.status === 204) return undefined as T;
@@ -2443,7 +1306,38 @@ export function useInfiniteMovies(baseUrl: string) {
 }
 ```
 
-- [ ] **Passo 5: Componentes visuais**
+- [ ] **Passo 6: Componentes visuais**
+
+Criar `src/components/NavBar.tsx` (a Tarefa 5 acrescenta Entrar, Minhas listas e Conta):
+
+```tsx
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+
+export function NavBar() {
+  const pathname = usePathname();
+  return (
+    <nav
+      aria-label="Navegação principal"
+      className="fixed inset-x-0 bottom-0 z-40 h-14 border-t border-neutral-800 bg-neutral-950/95 backdrop-blur md:sticky md:top-0 md:bottom-auto md:border-t-0 md:border-b"
+    >
+      <ul className="mx-auto flex h-full max-w-5xl">
+        <li className="flex-1">
+          <Link
+            href="/"
+            aria-current={pathname === "/" ? "page" : undefined}
+            className="flex h-full items-center justify-center text-sm font-medium text-white"
+          >
+            Catálogo
+          </Link>
+        </li>
+      </ul>
+    </nav>
+  );
+}
+```
 
 Criar `src/components/StatusMessage.tsx`:
 
@@ -2643,7 +1537,7 @@ export function CatalogToolbar({ query, onQueryChange, genreId, onGenreChange, s
 }
 ```
 
-Criar `src/components/CatalogView.tsx` (a Tarefa 6 acrescenta o modal):
+Criar `src/components/CatalogView.tsx` (a Tarefa 4 acrescenta o modal):
 
 ```tsx
 "use client";
@@ -2698,22 +1592,31 @@ export function CatalogView() {
 }
 ```
 
-Substituir `src/app/(app)/page.tsx` por:
+Substituir `src/app/page.tsx` por:
 
 ```tsx
 import { CatalogView } from "@/components/CatalogView";
-import { requirePageSession } from "@/lib/session";
 
-export default async function CatalogoPage() {
-  await requirePageSession("/");
+export default function CatalogoPage() {
   return <CatalogView />;
 }
 ```
 
-- [ ] **Passo 6: TMDB simulado para os testes E2E**
+Em `src/app/layout.tsx`, adicionar o import `import { NavBar } from "@/components/NavBar";` e trocar o `<body>` por:
+
+```tsx
+      <body className="min-h-dvh bg-neutral-950 text-neutral-100 antialiased">
+        <NavBar />
+        <main className="pb-16 md:pb-0">{children}</main>
+      </body>
+```
+
+- [ ] **Passo 7: TMDB simulado e Playwright**
 
 ```bash
-npm install -D tsx
+npm install -D @playwright/test tsx
+npx playwright install chromium
+npm pkg set scripts.test:e2e="playwright test"
 ```
 
 Criar `tests/mocks/tmdb-server.ts`:
@@ -2721,7 +1624,7 @@ Criar `tests/mocks/tmdb-server.ts`:
 ```ts
 // TMDB falso para os testes E2E. Dados determinísticos:
 // - catálogo: 3 páginas de 20 filmes; página p tem ids p*100 .. p*100+19 ("Filme 100"...)
-// - com gênero 35, os títulos começam com "Comédia"; com "mais bem avaliados", com "Top"
+// - com gênero 35 os títulos começam com "Comédia"; com "mais bem avaliados", com "Top"
 // - busca: "tmdb-fora" responde 500; "nada" volta vazio; o resto devolve 9001 (na Netflix) e 9002 (fora)
 // - o filme 9002 não tem pôster, sinopse, duração nem trailer
 import { createServer, type ServerResponse } from "node:http";
@@ -2787,9 +1690,25 @@ createServer((req, res) => {
 }).listen(PORT, () => console.log(`TMDB simulado em http://localhost:${PORT}`));
 ```
 
-No `playwright.config.ts`, adicionar o TMDB simulado como **primeiro** item de `webServer`:
+Criar `playwright.config.ts`:
 
 ```ts
+import { loadEnvConfig } from "@next/env";
+import { defineConfig, devices } from "@playwright/test";
+
+loadEnvConfig(process.cwd());
+
+const PORT = 3100;
+
+export default defineConfig({
+  testDir: "./tests/e2e",
+  workers: 1,
+  timeout: 30_000,
+  use: {
+    ...devices["Pixel 7"],
+    baseURL: `http://localhost:${PORT}`,
+    trace: "retain-on-failure",
+  },
   webServer: [
     {
       command: "npx tsx tests/mocks/tmdb-server.ts",
@@ -2798,113 +1717,152 @@ No `playwright.config.ts`, adicionar o TMDB simulado como **primeiro** item de `
     },
     {
       command: `npm run build && npx next start -p ${PORT}`,
-      // ...(o resto igual)
+      url: `http://localhost:${PORT}/`,
+      timeout: 240_000,
+      reuseExistingServer: false,
+      env: {
+        ...(process.env as Record<string, string>),
+        TMDB_API_TOKEN: "test-token",
+        TMDB_BASE_URL: "http://localhost:4010/3",
+        NETFLIX_PROVIDER_IDS: "8",
+      },
     },
   ],
+});
 ```
 
-- [ ] **Passo 7: Testes E2E do catálogo**
+Observações:
+- o `npm run dev` e os testes E2E disputam a pasta `.next`. **Pare o `npm run dev` antes de rodar `npm run test:e2e`**;
+- o cache de dados do Next guarda as respostas do TMDB simulado em `.next/cache`. Como o simulado é determinístico, isso não atrapalha.
+
+- [ ] **Passo 8: Testes E2E do catálogo**
 
 Criar `tests/e2e/catalog.spec.ts`:
 
 ```ts
 import { expect, test } from "@playwright/test";
-import { signUp } from "./helpers";
 
-test("a API não responde sem login", async ({ request }) => {
-  expect((await request.get("/api/catalogo")).status()).toBe(401);
-  expect((await request.get("/api/busca?q=x")).status()).toBe(401);
+test.beforeEach(async ({ page }) => {
+  await page.goto("/");
 });
 
-test.describe("logado", () => {
-  test.beforeEach(async ({ page }) => {
-    await signUp(page);
-  });
+test("o catálogo abre sem login e carrega mais filmes ao rolar", async ({ page }) => {
+  await expect(page.getByRole("button", { name: "Filme 100", exact: true })).toBeVisible();
+  // não contar itens: a rolagem infinita pode já ter puxado a página 2 se a tela for alta
+  await expect(page.getByRole("button", { name: "Filme 119", exact: true })).toBeAttached();
+  await page.getByRole("button", { name: "Filme 119", exact: true }).scrollIntoViewIfNeeded();
+  await expect(page.getByRole("button", { name: "Filme 200", exact: true })).toBeAttached();
+});
 
-  test("mostra o catálogo e carrega mais filmes ao rolar", async ({ page }) => {
-    await expect(page.getByRole("button", { name: "Filme 100", exact: true })).toBeVisible();
-    // não contar itens: a rolagem infinita pode já ter puxado a página 2 se a tela for alta
-    await expect(page.getByRole("button", { name: "Filme 119", exact: true })).toBeAttached();
-    await page.getByRole("button", { name: "Filme 119", exact: true }).scrollIntoViewIfNeeded();
-    await expect(page.getByRole("button", { name: "Filme 200", exact: true })).toBeAttached();
-  });
+test("filtra por gênero e ordena por mais bem avaliados", async ({ page }) => {
+  await page.getByLabel("Gênero").selectOption({ label: "Comédia" });
+  await expect(page.getByRole("button", { name: "Comédia 100", exact: true })).toBeVisible();
 
-  test("filtra por gênero e ordena por mais bem avaliados", async ({ page }) => {
-    await page.getByLabel("Gênero").selectOption({ label: "Comédia" });
-    await expect(page.getByRole("button", { name: "Comédia 100", exact: true })).toBeVisible();
+  await page.getByLabel("Gênero").selectOption({ label: "Todos os gêneros" });
+  await page.getByLabel("Ordenar").selectOption({ label: "Mais bem avaliados" });
+  await expect(page.getByRole("button", { name: "Top 100", exact: true })).toBeVisible();
+});
 
-    await page.getByLabel("Gênero").selectOption({ label: "Todos os gêneros" });
-    await page.getByLabel("Ordenar").selectOption({ label: "Mais bem avaliados" });
-    await expect(page.getByRole("button", { name: "Top 100", exact: true })).toBeVisible();
-  });
+test("a busca mostra se o filme está ou não na Netflix e desativa os filtros", async ({ page }) => {
+  await page.getByLabel("Buscar filme pelo nome").fill("achado");
+  const dentro = page.getByRole("button", { name: "Achado na Netflix" });
+  const fora = page.getByRole("button", { name: "Achado fora da Netflix" });
+  await expect(dentro.getByText("Na Netflix", { exact: true })).toBeVisible();
+  await expect(fora.getByText("Fora da Netflix", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Gênero")).toBeDisabled();
+  await expect(page.getByLabel("Ordenar")).toBeDisabled();
+});
 
-  test("a busca mostra se o filme está ou não na Netflix e desativa os filtros", async ({ page }) => {
-    await page.getByLabel("Buscar filme pelo nome").fill("achado");
-    const dentro = page.getByRole("button", { name: "Achado na Netflix" });
-    const fora = page.getByRole("button", { name: "Achado fora da Netflix" });
-    await expect(dentro.getByText("Na Netflix", { exact: true })).toBeVisible();
-    await expect(fora.getByText("Fora da Netflix", { exact: true })).toBeVisible();
-    await expect(page.getByLabel("Gênero")).toBeDisabled();
-    await expect(page.getByLabel("Ordenar")).toBeDisabled();
-  });
+test("busca sem resultados avisa", async ({ page }) => {
+  await page.getByLabel("Buscar filme pelo nome").fill("nada");
+  await expect(page.getByText("Nenhum filme encontrado.")).toBeVisible();
+});
 
-  test("busca sem resultados avisa", async ({ page }) => {
-    await page.getByLabel("Buscar filme pelo nome").fill("nada");
-    await expect(page.getByText("Nenhum filme encontrado.")).toBeVisible();
-  });
+test("TMDB fora do ar mostra o aviso de serviço indisponível", async ({ page }) => {
+  await page.getByLabel("Buscar filme pelo nome").fill("tmdb-fora");
+  await expect(
+    page.getByText("O serviço de filmes está indisponível no momento. Suas listas continuam funcionando normalmente."),
+  ).toBeVisible();
+});
 
-  test("TMDB fora do ar mostra o aviso de serviço indisponível", async ({ page }) => {
-    await page.getByLabel("Buscar filme pelo nome").fill("tmdb-fora");
-    await expect(
-      page.getByText("O serviço de filmes está indisponível no momento. Suas listas continuam funcionando normalmente."),
-    ).toBeVisible();
-  });
-
-  test("navegação e busca continuam visíveis depois de rolar", async ({ page }) => {
-    await expect(page.getByRole("button", { name: "Filme 100", exact: true })).toBeVisible();
-    await page.mouse.wheel(0, 3000);
-    await expect(page.getByRole("navigation", { name: "Navegação principal" })).toBeInViewport();
-    await expect(page.getByLabel("Buscar filme pelo nome")).toBeInViewport();
-  });
+test("navegação e busca continuam visíveis depois de rolar", async ({ page }) => {
+  await expect(page.getByRole("button", { name: "Filme 100", exact: true })).toBeVisible();
+  await page.mouse.wheel(0, 3000);
+  await expect(page.getByRole("navigation", { name: "Navegação principal" })).toBeInViewport();
+  await expect(page.getByLabel("Buscar filme pelo nome")).toBeInViewport();
 });
 ```
 
-- [ ] **Passo 8: Rodar todos os testes**
+- [ ] **Passo 9: Rodar todos os testes**
 
 ```bash
 npm test
+npm run lint
 npm run test:e2e
 ```
 
 Esperado: todos PASSAM.
 
-- [ ] **Passo 9: Conferir com o TMDB real**
+- [ ] **Passo 10: Conferir com o TMDB real**
 
-Com o `.env` completo, rode `npm run dev` e abra http://localhost:3000. Confira: os pôsteres da Netflix aparecem, a rolagem carrega mais, os filtros funcionam, e uma busca (ex.: "Matrix") mostra os selos.
+Rode `npm run dev`, abra http://localhost:3000 e confira: os pôsteres da Netflix aparecem, a rolagem carrega mais, os filtros funcionam e uma busca (ex.: "Matrix") mostra os selos.
 
-- [ ] **Passo 10: Commit e push**
+- [ ] **Passo 11: Variáveis do TMDB no Vercel (ação manual do usuário)**
+
+Peça ao usuário para abrir, no Vercel, *Project → Settings → Environment Variables* e cadastrar, marcando **Production** e **Preview**:
+- `TMDB_API_TOKEN` = o token do `.env`;
+- `NETFLIX_PROVIDER_IDS` = o mesmo valor do `.env`.
+
+- [ ] **Passo 12: Commit, push e PR**
 
 ```bash
 git add -A
-git commit -m "feat: catálogo da Netflix com busca, filtros e rolagem infinita
+git commit -m "feat: catálogo público da Netflix com busca, filtros e rolagem infinita"
+git push -u origin tarefa-03-catalogo
+gh pr create --base main --head tarefa-03-catalogo --title "Catálogo público" --body "$(cat <<'EOF'
+## O que muda
+- Catálogo da Netflix BR aberto a qualquer pessoa, com rolagem infinita
+- Busca no TMDB inteiro com selo "Na Netflix" / "Fora da Netflix"
+- Filtro por gênero e ordenação (Populares / Mais bem avaliados)
+- Avisos de serviço indisponível, sem conexão e busca vazia
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
-git push
+## Como testar
+- Abra a prévia do Vercel no celular: role, filtre, busque um filme
+- Local: `npm run test:e2e` (TMDB simulado)
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+EOF
+)"
 ```
+
+**Pare aqui** e espere o "Squash and merge".
 
 ---
 
-### Tarefa 6: Modal de detalhes
+### Tarefa 4: Modal de detalhes
+
+**Branch:** `tarefa-04-modal`
 
 **Arquivos:**
-- Criar: `src/lib/format.ts`, `src/components/MovieModal.tsx`, `src/app/api/filmes/[id]/route.ts`, `tests/unit/format.test.ts`, `tests/e2e/modal.spec.ts`
+- Criar: `src/lib/format.ts`, `src/lib/modal-stack.ts`, `src/hooks/useBackToClose.ts`, `src/hooks/useScrollLock.ts`, `src/components/Dialog.tsx`, `src/components/MovieModal.tsx`, `src/app/api/filmes/[id]/route.ts`
+- Testes: `tests/unit/format.test.ts`, `tests/unit/modal-stack.test.ts`, `tests/e2e/modal.spec.ts`
 - Modificar: `src/components/CatalogView.tsx`
 
 **Interfaces:**
-- Consome: `apiFetch`, `errorMessage`, `posterUrl`, `NetflixBadge`, `MovieSummary`, `MovieDetails`, `parseMovieId` e `withUser`.
-- Produz: `formatRuntime(minutes: number | null): string | null`, `<MovieModal movie={MovieSummary|null} onClose actions? />` (onde `actions` é `(movie: { tmdbMovieId; title; posterPath }) => ReactNode`, usado na Tarefa 8) e a rota `GET /api/filmes/{id}`.
+- Consome: `apiFetch`, `errorMessage`, `posterUrl`, `NetflixBadge`, `MovieSummary`, `MovieDetails`, `parseMovieId` e `tmdbResponse`.
+- Produz:
+  - `formatRuntime(minutes)`, a classe `ModalStack` (`push`, `remove`, `closeTop`, `size`), `useBackToClose(open, onClose): () => void` e `useScrollLock(active)`;
+  - `<Dialog open onClose labelledBy layer?="base"|"top">{(close) => ...}</Dialog>`;
+  - `<MovieModal movie onClose actions? />`, onde `actions` é `(movie: { tmdbMovieId; title; posterPath }) => ReactNode`;
+  - a rota `GET /api/filmes/{id}`.
 
-- [ ] **Passo 1: Teste do `formatRuntime` (falhando)**
+- [ ] **Passo 1: Criar a branch**
+
+```bash
+git switch main && git pull && git switch -c tarefa-04-modal
+```
+
+- [ ] **Passo 2: Testes de `formatRuntime` e da pilha de modais (falhando)**
 
 Criar `tests/unit/format.test.ts`:
 
@@ -2928,9 +1886,49 @@ describe("formatRuntime", () => {
 });
 ```
 
+Criar `tests/unit/modal-stack.test.ts`:
+
+```ts
+import { describe, expect, it, vi } from "vitest";
+import { ModalStack } from "@/lib/modal-stack";
+
+describe("ModalStack", () => {
+  it("fecha só o modal do topo", () => {
+    const stack = new ModalStack();
+    const fecharDetalhes = vi.fn();
+    const fecharLogin = vi.fn();
+    stack.push(fecharDetalhes);
+    stack.push(fecharLogin);
+
+    expect(stack.closeTop()).toBe(true);
+    expect(fecharLogin).toHaveBeenCalledTimes(1);
+    expect(fecharDetalhes).not.toHaveBeenCalled();
+    expect(stack.size).toBe(1);
+  });
+
+  it("remover um modal tira só ele da pilha", () => {
+    const stack = new ModalStack();
+    const a = vi.fn();
+    const b = vi.fn();
+    stack.push(a);
+    stack.push(b);
+    stack.remove(a);
+    stack.closeTop();
+    expect(b).toHaveBeenCalled();
+    expect(stack.size).toBe(0);
+  });
+
+  it("pilha vazia não faz nada", () => {
+    expect(new ModalStack().closeTop()).toBe(false);
+  });
+});
+```
+
 Rodar: `npm test`. Esperado: FALHA.
 
-- [ ] **Passo 2: Implementar `src/lib/format.ts`**
+- [ ] **Passo 3: Implementar `format`, `modal-stack` e os hooks**
+
+Criar `src/lib/format.ts`:
 
 ```ts
 export function formatRuntime(minutes: number | null): string | null {
@@ -2941,31 +1939,191 @@ export function formatRuntime(minutes: number | null): string | null {
 }
 ```
 
+Criar `src/lib/modal-stack.ts`:
+
+```ts
+/** Pilha dos modais abertos: o "voltar" e o Esc fecham só o do topo. */
+export class ModalStack {
+  private entries: Array<() => void> = [];
+
+  push(close: () => void): void {
+    this.entries.push(close);
+  }
+
+  remove(close: () => void): void {
+    const index = this.entries.lastIndexOf(close);
+    if (index >= 0) this.entries.splice(index, 1);
+  }
+
+  closeTop(): boolean {
+    const top = this.entries.pop();
+    top?.();
+    return top !== undefined;
+  }
+
+  get size(): number {
+    return this.entries.length;
+  }
+}
+```
+
 Rodar: `npm test`. Esperado: PASSA.
 
-- [ ] **Passo 3: Teste E2E do modal (falhando)**
+Criar `src/hooks/useBackToClose.ts`. Ao abrir, o modal empilha no histórico uma **cópia do estado atual** (mesma URL, mesmo estado do Next). O "voltar" desfaz só essa cópia e dispara `popstate`, sem navegar. Fechar por X, Esc ou clique fora chama `history.back()`, então o histórico fica sempre limpo.
+
+```ts
+"use client";
+
+import { useEffect, useRef } from "react";
+import { ModalStack } from "@/lib/modal-stack";
+
+const stack = new ModalStack();
+let listening = false;
+
+function listenOnce() {
+  if (listening) return;
+  listening = true;
+  window.addEventListener("popstate", () => {
+    stack.closeTop();
+  });
+  window.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && stack.size > 0) window.history.back();
+  });
+}
+
+/** Enquanto o modal está aberto, "voltar" e Esc o fecham (só o do topo). Devolve a função de fechar. */
+export function useBackToClose(open: boolean, onClose: () => void): () => void {
+  const onCloseRef = useRef(onClose);
+  const pushed = useRef(false);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!open) {
+      pushed.current = false;
+      return;
+    }
+    listenOnce();
+    if (!pushed.current) {
+      window.history.pushState(window.history.state, "");
+      pushed.current = true;
+    }
+    const entry = () => onCloseRef.current();
+    stack.push(entry);
+    return () => stack.remove(entry);
+  }, [open]);
+
+  return () => window.history.back();
+}
+```
+
+Criar `src/hooks/useScrollLock.ts`:
+
+```ts
+"use client";
+
+import { useEffect } from "react";
+
+let locks = 0;
+
+/** Trava a rolagem do fundo sem mudar a posição; funciona com modais empilhados. */
+export function useScrollLock(active: boolean): void {
+  useEffect(() => {
+    if (!active) return;
+    locks += 1;
+    document.documentElement.style.overflow = "hidden";
+    return () => {
+      locks -= 1;
+      if (locks === 0) document.documentElement.style.overflow = "";
+    };
+  }, [active]);
+}
+```
+
+- [ ] **Passo 4: Componente `Dialog` (base de todos os modais)**
+
+Criar `src/components/Dialog.tsx`:
+
+```tsx
+"use client";
+
+import { useEffect, useRef } from "react";
+import { useBackToClose } from "@/hooks/useBackToClose";
+import { useScrollLock } from "@/hooks/useScrollLock";
+
+type Props = {
+  open: boolean;
+  onClose: () => void;
+  /** id do título do modal: vira o nome acessível do diálogo */
+  labelledBy: string;
+  /** "top" fica acima de outro modal aberto (ex.: login por cima dos detalhes) */
+  layer?: "base" | "top";
+  children: (close: () => void) => React.ReactNode;
+};
+
+export function Dialog({ open, onClose, labelledBy, layer = "base", children }: Props) {
+  const close = useBackToClose(open, onClose);
+  useScrollLock(open);
+  const closeButton = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (open) closeButton.current?.focus();
+  }, [open]);
+
+  if (!open) return null;
+
+  return (
+    <div
+      className={`fixed inset-0 ${layer === "top" ? "z-[60]" : "z-50"} flex items-center justify-center bg-black/70 p-4`}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) close();
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={labelledBy}
+        className="relative max-h-[85dvh] w-full max-w-lg overflow-y-auto rounded-lg bg-neutral-900 p-4 shadow-xl"
+      >
+        <button
+          ref={closeButton}
+          type="button"
+          onClick={close}
+          aria-label="Fechar"
+          className="absolute right-2 top-2 rounded p-2 text-neutral-300 hover:text-white"
+        >
+          ✕
+        </button>
+        {children(close)}
+      </div>
+    </div>
+  );
+}
+```
+
+- [ ] **Passo 5: Teste E2E do modal (falhando)**
 
 Criar `tests/e2e/modal.spec.ts`:
 
 ```ts
 import { expect, test, type Page } from "@playwright/test";
-import { signUp } from "./helpers";
 
 const scrollY = (page: Page) => page.evaluate(() => window.scrollY);
 
 test("abrir e fechar o modal não muda a posição da lista", async ({ page }) => {
-  await signUp(page);
+  await page.goto("/");
   const card = page.getByRole("button", { name: "Filme 115", exact: true });
   await card.scrollIntoViewIfNeeded();
   await page.mouse.wheel(0, 200);
   await page.waitForTimeout(300);
   const before = await scrollY(page);
   expect(before).toBeGreaterThan(0);
-  const dialog = page.getByRole("dialog");
+  const dialog = page.getByRole("dialog", { name: "Filme 115" });
 
   // abre e mostra os detalhes
   await card.click();
-  await expect(dialog.getByRole("heading", { name: "Filme 115" })).toBeVisible();
   await expect(dialog.getByText("Sinopse do filme 115.")).toBeVisible();
   await expect(dialog.getByText("2020 · 2h 05min")).toBeVisible();
   await expect(dialog.getByText("Elenco: Atriz Um, Ator Dois")).toBeVisible();
@@ -2989,7 +2147,7 @@ test("abrir e fechar o modal não muda a posição da lista", async ({ page }) =
   await expect(dialog).toBeHidden();
   expect(await scrollY(page)).toBe(before);
 
-  // fecha com o "voltar" do celular/navegador sem sair do catálogo
+  // fecha com o "voltar" sem sair do catálogo
   await card.click();
   await expect(dialog).toBeVisible();
   await page.goBack();
@@ -3000,10 +2158,10 @@ test("abrir e fechar o modal não muda a posição da lista", async ({ page }) =
 });
 
 test("filme sem sinopse, duração e trailer não mostra campos vazios", async ({ page }) => {
-  await signUp(page);
+  await page.goto("/");
   await page.getByLabel("Buscar filme pelo nome").fill("achado");
   await page.getByRole("button", { name: "Achado fora da Netflix" }).click();
-  const dialog = page.getByRole("dialog");
+  const dialog = page.getByRole("dialog", { name: "Achado fora da Netflix" });
   await expect(dialog.getByText("Sinopse indisponível.")).toBeVisible();
   await expect(dialog.getByText("Fora da Netflix", { exact: true })).toBeVisible();
   await expect(dialog.getByRole("link", { name: "Ver trailer no YouTube" })).toHaveCount(0);
@@ -3014,40 +2172,33 @@ test("filme sem sinopse, duração e trailer não mostra campos vazios", async (
 
 Rodar: `npm run test:e2e -- modal`. Esperado: FALHA (o clique no card ainda não abre nada).
 
-- [ ] **Passo 4: Rota de detalhes**
+- [ ] **Passo 6: Rota de detalhes e o modal**
 
 Criar `src/app/api/filmes/[id]/route.ts`:
 
 ```ts
+import { jsonError, tmdbResponse } from "@/lib/api/http";
 import { parseMovieId } from "@/lib/api/params";
-import { jsonError, withUser } from "@/lib/api/http";
 import { getMovieService } from "@/lib/tmdb";
 
-export const dynamic = "force-dynamic";
-
-export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  return withUser(req, async () => {
-    const movieId = parseMovieId((await params).id);
-    if (movieId === null) return jsonError(400, "invalid_id");
-    return Response.json(await getMovieService().getMovieDetails(movieId));
-  });
+export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const movieId = parseMovieId((await params).id);
+  if (movieId === null) return jsonError(400, "invalid_id");
+  return tmdbResponse(() => getMovieService().getMovieDetails(movieId));
 }
 ```
-
-- [ ] **Passo 5: Componente do modal**
-
-O "voltar" fecha o modal porque, ao abrir, o modal empilha no histórico uma cópia do estado atual (mesma URL, mesmo estado do Next). O "voltar" desfaz só essa cópia e dispara `popstate`, sem navegar. Fechar por X, Esc ou clique fora chama `history.back()`, então o histórico fica sempre limpo.
 
 Criar `src/components/MovieModal.tsx`:
 
 ```tsx
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { apiFetch, errorMessage } from "@/lib/api-client";
 import { formatRuntime } from "@/lib/format";
 import { posterUrl } from "@/lib/images";
 import type { MovieDetails, MovieSummary } from "@/lib/tmdb/types";
+import { Dialog } from "./Dialog";
 import { NetflixBadge } from "./NetflixBadge";
 
 export type ModalMovie = { tmdbMovieId: number; title: string; posterPath: string | null };
@@ -3059,182 +2210,1182 @@ type Props = {
 };
 
 export function MovieModal({ movie, onClose, actions }: Props) {
-  const movieId = movie?.id ?? null;
+  return (
+    <Dialog open={movie !== null} onClose={onClose} labelledBy="movie-modal-title">
+      {() => movie && <MovieModalContent movie={movie} actions={actions} />}
+    </Dialog>
+  );
+}
+
+function MovieModalContent({ movie, actions }: { movie: MovieSummary; actions?: Props["actions"] }) {
   const [details, setDetails] = useState<MovieDetails | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const onCloseRef = useRef(onClose);
-  const closeButton = useRef<HTMLButtonElement>(null);
-  const pushedFor = useRef<number | null>(null);
 
   useEffect(() => {
-    onCloseRef.current = onClose;
-  }, [onClose]);
-
-  // Carrega os detalhes do filme aberto.
-  useEffect(() => {
-    if (movieId === null) return;
     let active = true;
-    setDetails(null);
-    setError(null);
-    apiFetch<MovieDetails>(`/api/filmes/${movieId}`)
+    apiFetch<MovieDetails>(`/api/filmes/${movie.id}`)
       .then((data) => active && setDetails(data))
       .catch((e) => active && setError(errorMessage(e)));
     return () => {
       active = false;
     };
-  }, [movieId]);
+  }, [movie.id]);
 
-  // Histórico (botão voltar), tecla Esc e trava da rolagem do fundo.
-  useEffect(() => {
-    if (movieId === null) {
-      pushedFor.current = null;
-      return;
-    }
-    if (pushedFor.current !== movieId) {
-      window.history.pushState(window.history.state, "");
-      pushedFor.current = movieId;
-    }
-    const onPop = () => onCloseRef.current();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") window.history.back();
-    };
-    window.addEventListener("popstate", onPop);
-    window.addEventListener("keydown", onKey);
-    const root = document.documentElement;
-    const previousOverflow = root.style.overflow;
-    root.style.overflow = "hidden"; // trava a rolagem sem mudar a posição
-    closeButton.current?.focus();
-    return () => {
-      window.removeEventListener("popstate", onPop);
-      window.removeEventListener("keydown", onKey);
-      root.style.overflow = previousOverflow;
-    };
-  }, [movieId]);
-
-  if (!movie) return null;
-
-  const close = () => window.history.back();
   const shown = details ?? movie;
   const onNetflix = details ? details.onNetflix : movie.onNetflix;
   const poster = posterUrl(shown.posterPath, "w342");
   const meta = [shown.year, details ? formatRuntime(details.runtimeMinutes) : null].filter(Boolean).join(" · ");
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) close();
-      }}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="movie-modal-title"
-        className="relative max-h-[85dvh] w-full max-w-lg overflow-y-auto rounded-lg bg-neutral-900 p-4 shadow-xl"
-      >
-        <button
-          ref={closeButton}
-          type="button"
-          onClick={close}
-          aria-label="Fechar"
-          className="absolute right-2 top-2 rounded p-2 text-neutral-300 hover:text-white"
-        >
-          ✕
-        </button>
-
-        <div className="flex gap-4">
-          {poster && (
-            // eslint-disable-next-line @next/next/no-img-element -- imagem do TMDB no tamanho certo
-            <img src={poster} alt="" className="w-24 shrink-0 self-start rounded" />
-          )}
-          <div className="min-w-0 space-y-1 pr-8">
-            <h2 id="movie-modal-title" className="text-lg font-semibold">
-              {shown.title}
-            </h2>
-            {meta && <p className="text-sm text-neutral-400">{meta}</p>}
-            {details && details.genres.length > 0 && <p className="text-sm text-neutral-400">{details.genres.join(", ")}</p>}
-            {onNetflix !== null && <NetflixBadge onNetflix={onNetflix} />}
-          </div>
+    <>
+      <div className="flex gap-4">
+        {poster && (
+          // eslint-disable-next-line @next/next/no-img-element -- imagem do TMDB no tamanho certo
+          <img src={poster} alt="" className="w-24 shrink-0 self-start rounded" />
+        )}
+        <div className="min-w-0 space-y-1 pr-8">
+          <h2 id="movie-modal-title" className="text-lg font-semibold">
+            {shown.title}
+          </h2>
+          {meta && <p className="text-sm text-neutral-400">{meta}</p>}
+          {details && details.genres.length > 0 && <p className="text-sm text-neutral-400">{details.genres.join(", ")}</p>}
+          {onNetflix !== null && <NetflixBadge onNetflix={onNetflix} />}
         </div>
-
-        {error && (
-          <p role="status" className="mt-4 text-sm text-neutral-400">
-            {error}
-          </p>
-        )}
-        {!details && !error && (
-          <p role="status" className="mt-4 text-sm text-neutral-400">
-            Carregando...
-          </p>
-        )}
-        {details && (
-          <div className="mt-4 space-y-3 text-sm">
-            <p>{details.overview ?? "Sinopse indisponível."}</p>
-            {details.cast.length > 0 && <p className="text-neutral-400">Elenco: {details.cast.join(", ")}</p>}
-            {details.trailerUrl && (
-              <a href={details.trailerUrl} target="_blank" rel="noopener noreferrer" className="inline-block text-red-400 underline">
-                Ver trailer no YouTube
-              </a>
-            )}
-          </div>
-        )}
-
-        {actions?.({ tmdbMovieId: movie.id, title: shown.title, posterPath: shown.posterPath })}
       </div>
-    </div>
+
+      {error && (
+        <p role="status" className="mt-4 text-sm text-neutral-400">
+          {error}
+        </p>
+      )}
+      {!details && !error && (
+        <p role="status" className="mt-4 text-sm text-neutral-400">
+          Carregando...
+        </p>
+      )}
+      {details && (
+        <div className="mt-4 space-y-3 text-sm">
+          <p>{details.overview ?? "Sinopse indisponível."}</p>
+          {details.cast.length > 0 && <p className="text-neutral-400">Elenco: {details.cast.join(", ")}</p>}
+          {details.trailerUrl && (
+            <a href={details.trailerUrl} target="_blank" rel="noopener noreferrer" className="inline-block text-red-400 underline">
+              Ver trailer no YouTube
+            </a>
+          )}
+        </div>
+      )}
+
+      {actions?.({ tmdbMovieId: movie.id, title: shown.title, posterPath: shown.posterPath })}
+    </>
   );
 }
 ```
 
-- [ ] **Passo 6: Ligar o modal ao catálogo**
+- [ ] **Passo 7: Ligar o modal ao catálogo**
 
 Em `src/components/CatalogView.tsx`:
 - adicionar o import `import { MovieModal } from "./MovieModal";`;
-- adicionar `MovieSummary` ao import de tipos: `import type { CatalogSort, Genre, MovieSummary } from "@/lib/tmdb/types";`;
-- dentro do componente, adicionar o estado `const [selected, setSelected] = useState<MovieSummary | null>(null);`;
+- trocar o import de tipos por `import type { CatalogSort, Genre, MovieSummary } from "@/lib/tmdb/types";`;
+- dentro do componente, adicionar `const [selected, setSelected] = useState<MovieSummary | null>(null);`;
 - trocar `onSelect={() => {}}` por `onSelect={setSelected}`;
 - logo antes do `</>` final, adicionar `<MovieModal movie={selected} onClose={() => setSelected(null)} />`.
 
-- [ ] **Passo 7: Rodar todos os testes**
+- [ ] **Passo 8: Rodar todos os testes**
 
 ```bash
 npm test
+npm run lint
 npm run test:e2e
 ```
 
 Esperado: todos PASSAM, incluindo `modal.spec.ts`.
 
-- [ ] **Passo 8: Conferir no celular de verdade (opcional e recomendado)**
-
-Com `npm run dev -- -H 0.0.0.0` rodando, abra `http://<IP-do-PC>:3000` no celular, na mesma rede Wi-Fi. Role, abra um filme e use o botão "voltar" do Android. O modal fecha e a lista continua no mesmo lugar.
-
-- [ ] **Passo 9: Commit e push**
+- [ ] **Passo 9: Commit, push e PR**
 
 ```bash
 git add -A
-git commit -m "feat: modal de detalhes que preserva a posição da lista
+git commit -m "feat: modal de detalhes que preserva a posição da lista"
+git push -u origin tarefa-04-modal
+gh pr create --base main --head tarefa-04-modal --title "Modal de detalhes" --body "$(cat <<'EOF'
+## O que muda
+- Tocar num pôster abre os detalhes (sinopse, duração, gêneros, elenco, trailer, selo da Netflix)
+- Fecha com clique fora, X, Esc ou o botão "voltar" do celular, sem mexer na rolagem
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
-git push
+## Como testar
+- Na prévia do Vercel, pelo celular: role bastante, abra um filme e use o "voltar" do Android
+- Local: `npm run test:e2e -- modal`
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+EOF
+)"
 ```
+
+**Pare aqui** e espere o "Squash and merge".
 
 ---
 
-### Tarefa 7: Listas: serviço e API
+### Tarefa 5: Contas (modal de login, Conta, Sair, Redefinir senha)
+
+**Branch:** `tarefa-05-contas`
 
 **Arquivos:**
-- Criar: `src/lib/lists/types.ts`, `src/lib/lists/service.ts`, `src/lib/lists/validation.ts`, `src/app/api/listas/route.ts`, `src/app/api/listas/[movieId]/route.ts`
-- Testes: `tests/integration/lists.test.ts`, `tests/unit/lists.test.ts`
+- Criar: `src/lib/supabase/env.ts`, `src/lib/supabase/server.ts`, `src/lib/supabase/client.ts`, `src/proxy.ts`, `src/lib/return-path.ts`, `src/lib/auth-messages.ts`, `src/components/TextField.tsx`, `src/components/Credits.tsx`, `src/components/auth/AuthProvider.tsx`, `src/components/auth/AuthModal.tsx`, `src/components/auth/AccountView.tsx`, `src/components/auth/ResetPasswordView.tsx`, `src/app/conta/page.tsx`, `src/app/redefinir-senha/page.tsx`, `src/app/auth/confirmar/route.ts`, `supabase/templates/recovery.html`
+- Testes: `tests/unit/return-path.test.ts`, `tests/unit/auth-messages.test.ts`, `tests/e2e/helpers.ts`, `tests/e2e/auth.spec.ts`
+- Modificar: `src/app/layout.tsx`, `src/components/NavBar.tsx`, `supabase/config.toml`
 
 **Interfaces:**
-- Consome: `Db`, `getDb()`, `listItems`, `withUser`, `jsonError`, `parseMovieId`, `getMovieService().getNetflixAvailability`, e os helpers de integração `testDb`, `resetDb`, `createUser`.
+- Consome: `Dialog`, `useBackToClose` (via `Dialog`) e `StatusMessage`.
 - Produz:
-  - `LIST_TYPES`, `ListType = "want" | "favorite"`, `MovieSnapshot { tmdbMovieId; title; posterPath }`, `StoredListItem` e `ListItemDto` (= snapshot + `listType` + `createdAt: string` + `onNetflix: boolean|null`);
-  - `addToList(db, userId, movie, listType)`, `removeFromList(db, userId, tmdbMovieId, listType)`, `getListItems(db, userId)` e `withAvailability(items, availability)`;
-  - `addListItemSchema` e `parseListType(value)`;
-  - rotas `GET /api/listas` → `{ items: ListItemDto[] }`, `POST /api/listas` (corpo = snapshot + `listType`) → 204, e `DELETE /api/listas/{movieId}?lista=want|favorite` → 204.
+  - `supabaseUrl()`, `supabaseKey()`, `createSupabaseServerClient()` e `getSupabaseBrowserClient()`;
+  - `safeReturnPath(value)`, `authErrorMessage(error, mode)` e o tipo `AppUser { id; email }`;
+  - `<AuthProvider initialUser>` e `useAuth()` → `{ user: AppUser|null, openAuth(opts?: { mode?: "entrar"|"criar"|"esqueci"; onSuccess?: () => void }), signOut() }`;
+  - `<TextField label ...inputProps />` e `<Credits />`;
+  - helpers E2E `uniqueEmail()`, `PASSWORD`, `scrollY(page)`, `signUp(page)`, `logIn(page, email, password)` e `logOut(page)`.
 
-- [ ] **Passo 1: Tipos**
+- [ ] **Passo 1: Criar a branch e instalar o Supabase**
+
+```bash
+git switch main && git pull && git switch -c tarefa-05-contas
+npm install @supabase/supabase-js @supabase/ssr
+```
+
+- [ ] **Passo 2: Testes das funções puras (falhando)**
+
+Criar `tests/unit/return-path.test.ts`:
+
+```ts
+import { describe, expect, it } from "vitest";
+import { safeReturnPath } from "@/lib/return-path";
+
+describe("safeReturnPath", () => {
+  it("aceita caminhos internos", () => {
+    expect(safeReturnPath("/redefinir-senha")).toBe("/redefinir-senha");
+  });
+
+  it("usa / quando não há valor", () => {
+    expect(safeReturnPath(null)).toBe("/");
+    expect(safeReturnPath("")).toBe("/");
+  });
+
+  it("recusa endereços externos", () => {
+    expect(safeReturnPath("https://site-externo.com")).toBe("/");
+    expect(safeReturnPath("//site-externo.com")).toBe("/");
+    expect(safeReturnPath("/\\site-externo.com")).toBe("/");
+  });
+});
+```
+
+Criar `tests/unit/auth-messages.test.ts`:
+
+```ts
+import { describe, expect, it } from "vitest";
+import { authErrorMessage } from "@/lib/auth-messages";
+
+describe("authErrorMessage", () => {
+  it("login errado sempre dá a mesma mensagem", () => {
+    expect(authErrorMessage({ status: 400, code: "invalid_credentials" }, "entrar")).toBe("E-mail ou senha incorretos.");
+    expect(authErrorMessage({ status: 400, code: "qualquer_outro" }, "entrar")).toBe("E-mail ou senha incorretos.");
+  });
+
+  it("cadastro com e-mail já usado", () => {
+    expect(authErrorMessage({ status: 422, code: "user_already_exists" }, "criar")).toBe("Este e-mail já tem conta.");
+    expect(authErrorMessage({ status: 422, code: "email_exists" }, "criar")).toBe("Este e-mail já tem conta.");
+  });
+
+  it("senha fraca no cadastro", () => {
+    expect(authErrorMessage({ status: 422, code: "weak_password" }, "criar")).toBe("A senha precisa ter pelo menos 8 caracteres.");
+  });
+
+  it("muitas tentativas", () => {
+    expect(authErrorMessage({ status: 429, code: "over_request_rate_limit" }, "entrar")).toBe("Muitas tentativas. Aguarde um minuto e tente de novo.");
+  });
+
+  it("sem resposta do servidor é falta de conexão", () => {
+    expect(authErrorMessage({ status: 0 }, "entrar")).toBe("Sem conexão. Verifique sua internet.");
+  });
+});
+```
+
+Rodar: `npm test`. Esperado: FALHA.
+
+- [ ] **Passo 3: Implementar as funções puras**
+
+Criar `src/lib/return-path.ts`:
+
+```ts
+/** Só permite voltar para caminhos deste site (evita redirecionar para sites externos). */
+export function safeReturnPath(value: string | null | undefined): string {
+  if (typeof value !== "string") return "/";
+  if (!value.startsWith("/") || value.startsWith("//") || value.startsWith("/\\")) return "/";
+  return value;
+}
+```
+
+Criar `src/lib/auth-messages.ts`:
+
+```ts
+export type AuthMode = "entrar" | "criar" | "esqueci";
+
+type AuthErrorLike = { status?: number; code?: string };
+
+export function authErrorMessage(error: AuthErrorLike, mode: Exclude<AuthMode, "esqueci">): string {
+  if (error.status === 429 || error.code === "over_request_rate_limit") return "Muitas tentativas. Aguarde um minuto e tente de novo.";
+  if (!error.status) return "Sem conexão. Verifique sua internet.";
+  if (mode === "entrar") return "E-mail ou senha incorretos.";
+  if (error.code === "user_already_exists" || error.code === "email_exists") return "Este e-mail já tem conta.";
+  if (error.code === "weak_password") return "A senha precisa ter pelo menos 8 caracteres.";
+  if (error.code === "email_address_invalid" || error.code === "validation_failed") return "E-mail inválido.";
+  return "Não foi possível criar a conta. Tente de novo.";
+}
+```
+
+Rodar: `npm test`. Esperado: PASSA.
+
+- [ ] **Passo 4: Clientes do Supabase e o proxy de sessão**
+
+Criar `src/lib/supabase/env.ts`. As variáveis `NEXT_PUBLIC_*` precisam ser lidas por nome literal, porque o Next as embute no código do navegador durante o build:
+
+```ts
+export function supabaseUrl(): string {
+  const value = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  if (!value) throw new Error("NEXT_PUBLIC_SUPABASE_URL não definida");
+  return value;
+}
+
+export function supabaseKey(): string {
+  const value = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+  if (!value) throw new Error("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY não definida");
+  return value;
+}
+```
+
+Criar `src/lib/supabase/server.ts`:
+
+```ts
+import "server-only";
+import { createServerClient } from "@supabase/ssr";
+import { cookies } from "next/headers";
+import { supabaseKey, supabaseUrl } from "./env";
+
+/** Cliente do Supabase no servidor, com a sessão de quem fez a requisição (o RLS vale para ela). */
+export async function createSupabaseServerClient() {
+  const cookieStore = await cookies();
+  return createServerClient(supabaseUrl(), supabaseKey(), {
+    cookies: {
+      getAll() {
+        return cookieStore.getAll();
+      },
+      setAll(cookiesToSet) {
+        try {
+          cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options));
+        } catch {
+          // Chamado de um Server Component, que não pode gravar cookies: o proxy renova a sessão.
+        }
+      },
+    },
+  });
+}
+```
+
+Criar `src/lib/supabase/client.ts`:
+
+```ts
+"use client";
+
+import { createBrowserClient } from "@supabase/ssr";
+import { supabaseKey, supabaseUrl } from "./env";
+
+let client: ReturnType<typeof createBrowserClient> | undefined;
+
+/** Cliente do Supabase no navegador; guarda a sessão em cookies que o servidor também lê. */
+export function getSupabaseBrowserClient() {
+  client ??= createBrowserClient(supabaseUrl(), supabaseKey());
+  return client;
+}
+```
+
+Criar `src/proxy.ts`. No Next 16, o antigo `middleware.ts` se chama `proxy.ts`. Se o build reclamar do nome, confira a documentação da versão instalada:
+
+```ts
+import { createServerClient } from "@supabase/ssr";
+import { NextResponse, type NextRequest } from "next/server";
+
+/** Renova a sessão do Supabase a cada navegação, antes das páginas lerem o usuário. */
+export async function proxy(request: NextRequest) {
+  let response = NextResponse.next({ request });
+  const supabase = createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!, {
+    cookies: {
+      getAll() {
+        return request.cookies.getAll();
+      },
+      setAll(cookiesToSet) {
+        cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
+        response = NextResponse.next({ request });
+        cookiesToSet.forEach(({ name, value, options }) => response.cookies.set(name, value, options));
+      },
+    },
+  });
+  await supabase.auth.getUser();
+  return response;
+}
+
+export const config = {
+  // pula arquivos estáticos e as rotas públicas do TMDB, que não usam sessão
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/catalogo|api/busca|api/generos|api/filmes|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
+};
+```
+
+- [ ] **Passo 5: Componentes de formulário e créditos**
+
+Criar `src/components/TextField.tsx`:
+
+```tsx
+"use client";
+
+import { useId } from "react";
+
+type Props = { label: string } & React.InputHTMLAttributes<HTMLInputElement>;
+
+export function TextField({ label, ...inputProps }: Props) {
+  const id = useId();
+  return (
+    <div className="space-y-1">
+      <label htmlFor={id} className="block text-sm text-neutral-300">
+        {label}
+      </label>
+      <input
+        id={id}
+        {...inputProps}
+        className="w-full rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-neutral-100 focus:border-red-500 focus:outline-none"
+      />
+    </div>
+  );
+}
+```
+
+Criar `src/components/Credits.tsx`:
+
+```tsx
+export function Credits() {
+  return (
+    <footer className="space-y-1 text-center text-xs text-neutral-500">
+      <p>
+        Este produto usa a API do{" "}
+        <a href="https://www.themoviedb.org" target="_blank" rel="noopener noreferrer" className="underline">
+          TMDB
+        </a>
+        , mas não é endossado nem certificado pelo TMDB.
+      </p>
+      <p>
+        Dados de onde assistir fornecidos pela{" "}
+        <a href="https://www.justwatch.com" target="_blank" rel="noopener noreferrer" className="underline">
+          JustWatch
+        </a>
+        .
+      </p>
+    </footer>
+  );
+}
+```
+
+- [ ] **Passo 6: Provider de autenticação e modal de login**
+
+Criar `src/components/auth/AuthProvider.tsx`:
+
+```tsx
+"use client";
+
+import { useRouter } from "next/navigation";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import type { AuthMode } from "@/lib/auth-messages";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { AuthModal } from "./AuthModal";
+
+export type AppUser = { id: string; email: string };
+export type OpenAuthOptions = { mode?: AuthMode; onSuccess?: () => void };
+export type AuthRequest = { mode: AuthMode; onSuccess?: () => void };
+
+type AuthContextValue = {
+  user: AppUser | null;
+  openAuth: (options?: OpenAuthOptions) => void;
+  signOut: () => Promise<void>;
+};
+
+const AuthContext = createContext<AuthContextValue | null>(null);
+
+export function useAuth(): AuthContextValue {
+  const value = useContext(AuthContext);
+  if (!value) throw new Error("useAuth precisa estar dentro de <AuthProvider>");
+  return value;
+}
+
+export function AuthProvider({ initialUser, children }: { initialUser: AppUser | null; children: React.ReactNode }) {
+  const router = useRouter();
+  const [user, setUser] = useState<AppUser | null>(initialUser);
+  const [request, setRequest] = useState<AuthRequest | null>(null);
+
+  useEffect(() => {
+    const supabase = getSupabaseBrowserClient();
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ? { id: session.user.id, email: session.user.email ?? "" } : null);
+    });
+    return () => data.subscription.unsubscribe();
+  }, []);
+
+  const openAuth = useCallback((options: OpenAuthOptions = {}) => {
+    setRequest({ mode: options.mode ?? "entrar", onSuccess: options.onSuccess });
+  }, []);
+
+  const signOut = useCallback(async () => {
+    await getSupabaseBrowserClient().auth.signOut();
+    setUser(null);
+    router.refresh();
+  }, [router]);
+
+  const value = useMemo(() => ({ user, openAuth, signOut }), [user, openAuth, signOut]);
+
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+      <AuthModal request={request} onClose={() => setRequest(null)} onSignedIn={setUser} />
+    </AuthContext.Provider>
+  );
+}
+```
+
+Criar `src/components/auth/AuthModal.tsx`:
+
+```tsx
+"use client";
+
+import { useState } from "react";
+import { Credits } from "@/components/Credits";
+import { Dialog } from "@/components/Dialog";
+import { TextField } from "@/components/TextField";
+import { authErrorMessage, type AuthMode } from "@/lib/auth-messages";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import type { AppUser, AuthRequest } from "./AuthProvider";
+
+const TITLES: Record<AuthMode, string> = { entrar: "Entrar", criar: "Criar conta", esqueci: "Esqueci minha senha" };
+
+type Props = { request: AuthRequest | null; onClose: () => void; onSignedIn: (user: AppUser) => void };
+
+export function AuthModal({ request, onClose, onSignedIn }: Props) {
+  return (
+    <Dialog open={request !== null} onClose={onClose} labelledBy="auth-modal-title" layer="top">
+      {(close) =>
+        request && (
+          <AuthPanel
+            initialMode={request.mode}
+            onDone={(user) => {
+              onSignedIn(user);
+              const after = request.onSuccess;
+              close(); // tira o login da tela antes de concluir a ação pendente
+              after?.();
+            }}
+          />
+        )
+      }
+    </Dialog>
+  );
+}
+
+function AuthPanel({ initialMode, onDone }: { initialMode: AuthMode; onDone: (user: AppUser) => void }) {
+  const [mode, setMode] = useState<AuthMode>(initialMode);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  const [sent, setSent] = useState(false);
+
+  function switchTo(next: AuthMode) {
+    setMode(next);
+    setError(null);
+    setSent(false);
+  }
+
+  async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const email = String(form.get("email")).trim();
+    const password = String(form.get("password") ?? "");
+    const supabase = getSupabaseBrowserClient();
+    setError(null);
+    if (mode === "criar" && password.length < 8) {
+      setError("A senha precisa ter pelo menos 8 caracteres.");
+      return;
+    }
+    setPending(true);
+    try {
+      if (mode === "entrar") {
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) return setError(authErrorMessage(error, "entrar"));
+        onDone({ id: data.user.id, email: data.user.email ?? email });
+      } else if (mode === "criar") {
+        const { data, error } = await supabase.auth.signUp({ email, password });
+        if (error) return setError(authErrorMessage(error, "criar"));
+        if (!data.user || !data.session) return setError("Não foi possível criar a conta. Tente de novo.");
+        onDone({ id: data.user.id, email: data.user.email ?? email });
+      } else {
+        const { error } = await supabase.auth.resetPasswordForEmail(email);
+        if (error?.status === 429) return setError("Muitas tentativas. Aguarde um minuto e tente de novo.");
+        setSent(true); // mesma resposta exista ou não a conta
+      }
+    } catch {
+      setError("Sem conexão. Verifique sua internet.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  const link = "text-sm text-red-400 underline";
+
+  return (
+    <div className="space-y-4">
+      <h2 id="auth-modal-title" className="pr-8 text-lg font-semibold">
+        {TITLES[mode]}
+      </h2>
+
+      {mode === "esqueci" && sent ? (
+        <p role="status" className="text-sm text-neutral-300">
+          Se o e-mail existir, enviamos o link.
+        </p>
+      ) : (
+        <form onSubmit={onSubmit} className="space-y-4">
+          <TextField label="E-mail" name="email" type="email" autoComplete="email" required />
+          {mode !== "esqueci" && (
+            <TextField
+              label="Senha"
+              name="password"
+              type="password"
+              autoComplete={mode === "criar" ? "new-password" : "current-password"}
+              required
+            />
+          )}
+          {error && (
+            <p role="alert" className="text-sm text-red-400">
+              {error}
+            </p>
+          )}
+          <button type="submit" disabled={pending} className="w-full rounded-md bg-red-600 py-2 font-medium text-white disabled:opacity-60">
+            {pending ? "Aguarde..." : mode === "esqueci" ? "Enviar link" : TITLES[mode]}
+          </button>
+        </form>
+      )}
+
+      <div className="flex flex-wrap justify-between gap-2">
+        {mode === "entrar" && (
+          <>
+            <button type="button" onClick={() => switchTo("criar")} className={link}>
+              Criar conta
+            </button>
+            <button type="button" onClick={() => switchTo("esqueci")} className={link}>
+              Esqueci minha senha
+            </button>
+          </>
+        )}
+        {mode !== "entrar" && (
+          <button type="button" onClick={() => switchTo("entrar")} className={link}>
+            {mode === "criar" ? "Já tenho conta" : "Voltar para entrar"}
+          </button>
+        )}
+      </div>
+
+      <Credits />
+    </div>
+  );
+}
+```
+
+- [ ] **Passo 7: Navegação, Conta, layout**
+
+Substituir `src/components/NavBar.tsx` por:
+
+```tsx
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useAuth } from "./auth/AuthProvider";
+
+const item = "flex h-full w-full items-center justify-center text-sm font-medium";
+
+export function NavBar() {
+  const pathname = usePathname();
+  const { user, openAuth } = useAuth();
+  const links = user
+    ? [
+        { href: "/", label: "Catálogo" },
+        { href: "/listas", label: "Minhas listas" },
+        { href: "/conta", label: "Conta" },
+      ]
+    : [{ href: "/", label: "Catálogo" }];
+
+  return (
+    <nav
+      aria-label="Navegação principal"
+      className="fixed inset-x-0 bottom-0 z-40 h-14 border-t border-neutral-800 bg-neutral-950/95 backdrop-blur md:sticky md:top-0 md:bottom-auto md:border-t-0 md:border-b"
+    >
+      <ul className="mx-auto flex h-full max-w-5xl">
+        {links.map((link) => {
+          const active = link.href === "/" ? pathname === "/" : pathname.startsWith(link.href);
+          return (
+            <li key={link.href} className="flex-1">
+              <Link href={link.href} aria-current={active ? "page" : undefined} className={`${item} ${active ? "text-white" : "text-neutral-400"}`}>
+                {link.label}
+              </Link>
+            </li>
+          );
+        })}
+        {!user && (
+          <li className="flex-1">
+            <button type="button" onClick={() => openAuth()} className={`${item} text-neutral-400`}>
+              Entrar
+            </button>
+          </li>
+        )}
+      </ul>
+    </nav>
+  );
+}
+```
+
+Criar `src/components/auth/AccountView.tsx`:
+
+```tsx
+"use client";
+
+import { Credits } from "@/components/Credits";
+import { useAuth } from "./AuthProvider";
+
+export function AccountView() {
+  const { user, openAuth, signOut } = useAuth();
+
+  if (!user) {
+    return (
+      <div className="mx-auto max-w-md space-y-4 p-6 text-center">
+        <p className="text-sm text-neutral-300">Entre para ver sua conta.</p>
+        <button type="button" onClick={() => openAuth()} className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white">
+          Entrar
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-auto max-w-md space-y-6 p-6">
+      <h1 className="text-2xl font-semibold">Conta</h1>
+      <dl className="text-sm">
+        <dt className="text-neutral-400">E-mail</dt>
+        <dd>{user.email}</dd>
+      </dl>
+      <button type="button" onClick={() => void signOut()} className="w-full rounded-md border border-neutral-700 py-2 text-sm">
+        Sair
+      </button>
+      <Credits />
+    </div>
+  );
+}
+```
+
+Criar `src/app/conta/page.tsx`:
+
+```tsx
+import { AccountView } from "@/components/auth/AccountView";
+
+export default function ContaPage() {
+  return <AccountView />;
+}
+```
+
+Substituir `src/app/layout.tsx` por:
+
+```tsx
+import type { Metadata } from "next";
+import { AuthProvider } from "@/components/auth/AuthProvider";
+import { NavBar } from "@/components/NavBar";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import "./globals.css";
+
+export const metadata: Metadata = {
+  title: "Catálogo de Filmes",
+  description: "Filmes da Netflix Brasil e suas listas",
+};
+
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const supabase = await createSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  return (
+    <html lang="pt-BR">
+      <body className="min-h-dvh bg-neutral-950 text-neutral-100 antialiased">
+        <AuthProvider initialUser={user ? { id: user.id, email: user.email ?? "" } : null}>
+          <NavBar />
+          <main className="pb-16 md:pb-0">{children}</main>
+        </AuthProvider>
+      </body>
+    </html>
+  );
+}
+```
+
+- [ ] **Passo 8: Recuperação de senha (e-mail, link e tela)**
+
+Criar `supabase/templates/recovery.html`. O link usa `token_hash`, e não o fluxo padrão com código, para funcionar mesmo se a pessoa abrir o e-mail em outro aparelho:
+
+```html
+<h2>Redefinir sua senha</h2>
+<p>Recebemos um pedido para redefinir a senha da sua conta. O link vale por 1 hora:</p>
+<p>
+  <a href="{{ .SiteURL }}/auth/confirmar?token_hash={{ .TokenHash }}&type=recovery&next=/redefinir-senha">Criar nova senha</a>
+</p>
+<p>Se não foi você, ignore este e-mail. Sua senha continua a mesma.</p>
+```
+
+Em `supabase/config.toml`, acrescentar (o arquivo gerado tem exemplos comentados de templates; adicione esta seção):
+
+```toml
+[auth.email.template.recovery]
+subject = "Redefinir sua senha"
+content_path = "./supabase/templates/recovery.html"
+```
+
+```bash
+npx supabase stop && npx supabase start
+```
+
+Criar `src/app/auth/confirmar/route.ts`:
+
+```ts
+import type { EmailOtpType } from "@supabase/supabase-js";
+import { redirect } from "next/navigation";
+import type { NextRequest } from "next/server";
+import { safeReturnPath } from "@/lib/return-path";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+
+/** Destino do link do e-mail: valida o token, cria a sessão e segue para a próxima tela. */
+export async function GET(request: NextRequest) {
+  const params = request.nextUrl.searchParams;
+  const tokenHash = params.get("token_hash");
+  const type = params.get("type") as EmailOtpType | null;
+  const next = safeReturnPath(params.get("next"));
+
+  if (tokenHash && type) {
+    const supabase = await createSupabaseServerClient();
+    const { error } = await supabase.auth.verifyOtp({ type, token_hash: tokenHash });
+    if (!error) redirect(next);
+  }
+  redirect("/redefinir-senha?erro=link");
+}
+```
+
+Criar `src/components/auth/ResetPasswordView.tsx`:
+
+```tsx
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+import { TextField } from "@/components/TextField";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { useAuth } from "./AuthProvider";
+
+export function ResetPasswordView({ linkError }: { linkError: boolean }) {
+  const router = useRouter();
+  const { user, openAuth } = useAuth();
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+
+  async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const password = String(form.get("password"));
+    if (password.length < 8) return setError("A senha precisa ter pelo menos 8 caracteres.");
+    if (password !== String(form.get("confirm"))) return setError("As senhas não são iguais.");
+    setPending(true);
+    setError(null);
+    try {
+      const supabase = getSupabaseBrowserClient();
+      const { error } = await supabase.auth.updateUser({ password });
+      if (error) {
+        setError(error.code === "same_password" ? "A nova senha precisa ser diferente da atual." : "Não foi possível salvar. Peça um novo link.");
+        return;
+      }
+      await supabase.auth.signOut({ scope: "others" }); // os outros aparelhos caem em até 1 hora
+      router.replace("/");
+    } catch {
+      setError("Sem conexão. Verifique sua internet.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  if (linkError || !user) {
+    return (
+      <div className="mx-auto max-w-md space-y-4 p-6 text-center">
+        <p role="alert" className="text-sm text-red-400">
+          Link inválido ou expirado.
+        </p>
+        <button type="button" onClick={() => openAuth({ mode: "esqueci" })} className="text-sm text-red-400 underline">
+          Pedir um novo link
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <form onSubmit={onSubmit} className="mx-auto max-w-md space-y-4 p-6">
+      <h1 className="text-2xl font-semibold">Criar nova senha</h1>
+      <TextField label="Nova senha" name="password" type="password" autoComplete="new-password" minLength={8} required />
+      <TextField label="Confirmar nova senha" name="confirm" type="password" autoComplete="new-password" minLength={8} required />
+      {error && (
+        <p role="alert" className="text-sm text-red-400">
+          {error}
+        </p>
+      )}
+      <button type="submit" disabled={pending} className="w-full rounded-md bg-red-600 py-2 font-medium text-white disabled:opacity-60">
+        {pending ? "Salvando..." : "Salvar nova senha"}
+      </button>
+    </form>
+  );
+}
+```
+
+Criar `src/app/redefinir-senha/page.tsx`:
+
+```tsx
+import { ResetPasswordView } from "@/components/auth/ResetPasswordView";
+
+export default async function RedefinirSenhaPage({ searchParams }: { searchParams: Promise<{ erro?: string }> }) {
+  const { erro } = await searchParams;
+  return <ResetPasswordView linkError={erro === "link"} />;
+}
+```
+
+- [ ] **Passo 9: Helpers e testes E2E de contas**
+
+Antes, confira a caixa de e-mails local: abra http://localhost:54324. A interface deve ser a do **Mailpit**, que tem a API `/api/v1/messages`. Se for o antigo **Inbucket**, ajuste `resetLinkFor` para a API dele (`/api/v1/mailbox/<nome>`).
+
+Criar `tests/e2e/helpers.ts`:
+
+```ts
+import { expect, type APIRequestContext, type Page } from "@playwright/test";
+
+export const PASSWORD = "senha-segura-123";
+const MAILPIT = "http://localhost:54324";
+
+export function uniqueEmail(): string {
+  return `e2e-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@teste.com`;
+}
+
+export const scrollY = (page: Page) => page.evaluate(() => window.scrollY);
+
+const nav = (page: Page) => page.getByRole("navigation", { name: "Navegação principal" });
+
+export async function signUp(page: Page, email = uniqueEmail(), password = PASSWORD) {
+  await nav(page).getByRole("button", { name: "Entrar" }).click();
+  await page.getByRole("dialog", { name: "Entrar" }).getByRole("button", { name: "Criar conta" }).click();
+  const dialog = page.getByRole("dialog", { name: "Criar conta" });
+  await dialog.getByLabel("E-mail").fill(email);
+  await dialog.getByLabel("Senha").fill(password);
+  await dialog.getByRole("button", { name: "Criar conta" }).click();
+  await expect(nav(page).getByRole("link", { name: "Conta" })).toBeVisible();
+  return { email, password };
+}
+
+export async function logIn(page: Page, email: string, password: string) {
+  await nav(page).getByRole("button", { name: "Entrar" }).click();
+  const dialog = page.getByRole("dialog", { name: "Entrar" });
+  await dialog.getByLabel("E-mail").fill(email);
+  await dialog.getByLabel("Senha").fill(password);
+  await dialog.getByRole("button", { name: "Entrar" }).click();
+}
+
+export async function logOut(page: Page) {
+  await page.goto("/conta");
+  await page.getByRole("button", { name: "Sair" }).click();
+  await expect(nav(page).getByRole("button", { name: "Entrar" })).toBeVisible();
+}
+
+/** Busca na caixa de e-mails local o link de redefinição mais recente e aponta para o app dos testes. */
+export async function resetLinkFor(request: APIRequestContext, email: string, baseURL: string): Promise<string> {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const list = await (await request.get(`${MAILPIT}/api/v1/messages`)).json();
+    const message = list.messages?.find((m: { To: { Address: string }[] }) => m.To.some((to) => to.Address === email));
+    if (message) {
+      const full = await (await request.get(`${MAILPIT}/api/v1/message/${message.ID}`)).json();
+      const href = (full.HTML as string).match(/href="([^"]*\/auth\/confirmar[^"]*)"/)?.[1];
+      // o site_url local é a porta 3000; os testes rodam na 3100
+      if (href) return href.replaceAll("&amp;", "&").replace("http://localhost:3000", baseURL);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error(`Nenhum e-mail de redefinição para ${email}`);
+}
+```
+
+Criar `tests/e2e/auth.spec.ts`:
+
+```ts
+import { expect, test } from "@playwright/test";
+import { logIn, logOut, PASSWORD, resetLinkFor, signUp, uniqueEmail } from "./helpers";
+
+test.beforeEach(async ({ page }) => {
+  await page.goto("/");
+});
+
+test("criar conta, continuar logado depois de recarregar e sair", async ({ page }) => {
+  const conta = await signUp(page);
+  await page.reload();
+  await expect(page.getByRole("link", { name: "Minhas listas" })).toBeVisible();
+  await page.goto("/conta");
+  await expect(page.getByText(conta.email)).toBeVisible();
+  await expect(page.getByText("mas não é endossado nem certificado pelo TMDB")).toBeVisible();
+  await logOut(page);
+  await expect(page.getByRole("link", { name: "Minhas listas" })).toHaveCount(0);
+});
+
+test("senha errada e e-mail inexistente mostram a mesma mensagem", async ({ page }) => {
+  const conta = await signUp(page);
+  await logOut(page);
+
+  await logIn(page, conta.email, "senha-errada-999");
+  const dialog = page.getByRole("dialog", { name: "Entrar" });
+  await expect(dialog.getByRole("alert")).toHaveText("E-mail ou senha incorretos.");
+
+  await dialog.getByLabel("E-mail").fill("ninguem-aqui@teste.com");
+  await dialog.getByLabel("Senha").fill(PASSWORD);
+  await dialog.getByRole("button", { name: "Entrar" }).click();
+  await expect(dialog.getByRole("alert")).toHaveText("E-mail ou senha incorretos.");
+});
+
+test("cadastro com e-mail já usado avisa", async ({ page }) => {
+  const conta = await signUp(page);
+  await logOut(page);
+  await page.getByRole("navigation", { name: "Navegação principal" }).getByRole("button", { name: "Entrar" }).click();
+  await page.getByRole("dialog", { name: "Entrar" }).getByRole("button", { name: "Criar conta" }).click();
+  const dialog = page.getByRole("dialog", { name: "Criar conta" });
+  await dialog.getByLabel("E-mail").fill(conta.email);
+  await dialog.getByLabel("Senha").fill(PASSWORD);
+  await dialog.getByRole("button", { name: "Criar conta" }).click();
+  await expect(dialog.getByRole("alert")).toHaveText("Este e-mail já tem conta.");
+});
+
+test("o botão voltar fecha o modal de login sem sair da página", async ({ page }) => {
+  await page.getByRole("navigation", { name: "Navegação principal" }).getByRole("button", { name: "Entrar" }).click();
+  await expect(page.getByRole("dialog", { name: "Entrar" })).toBeVisible();
+  await page.goBack();
+  await expect(page.getByRole("dialog", { name: "Entrar" })).toBeHidden();
+  await expect(page).toHaveURL("/");
+});
+
+test("recuperar a senha pelo e-mail", async ({ page, request, baseURL }) => {
+  const conta = await signUp(page, uniqueEmail());
+  await logOut(page);
+
+  await page.getByRole("navigation", { name: "Navegação principal" }).getByRole("button", { name: "Entrar" }).click();
+  await page.getByRole("dialog", { name: "Entrar" }).getByRole("button", { name: "Esqueci minha senha" }).click();
+  const esqueci = page.getByRole("dialog", { name: "Esqueci minha senha" });
+  await esqueci.getByLabel("E-mail").fill(conta.email);
+  await esqueci.getByRole("button", { name: "Enviar link" }).click();
+  await expect(esqueci.getByText("Se o e-mail existir, enviamos o link.")).toBeVisible();
+
+  await page.goto(await resetLinkFor(request, conta.email, baseURL!));
+  await expect(page).toHaveURL("/redefinir-senha");
+  await page.getByLabel("Nova senha", { exact: true }).fill("senha-nova-456");
+  await page.getByLabel("Confirmar nova senha").fill("senha-nova-456");
+  await page.getByRole("button", { name: "Salvar nova senha" }).click();
+  await expect(page).toHaveURL("/");
+  await expect(page.getByRole("link", { name: "Conta" })).toBeVisible();
+
+  await logOut(page);
+  await logIn(page, conta.email, PASSWORD);
+  await expect(page.getByRole("dialog", { name: "Entrar" }).getByRole("alert")).toHaveText("E-mail ou senha incorretos.");
+  const dialog = page.getByRole("dialog", { name: "Entrar" });
+  await dialog.getByLabel("Senha").fill("senha-nova-456");
+  await dialog.getByRole("button", { name: "Entrar" }).click();
+  await expect(page.getByRole("link", { name: "Conta" })).toBeVisible();
+});
+
+test("e-mail sem conta recebe a mesma resposta", async ({ page }) => {
+  await page.getByRole("navigation", { name: "Navegação principal" }).getByRole("button", { name: "Entrar" }).click();
+  await page.getByRole("dialog", { name: "Entrar" }).getByRole("button", { name: "Esqueci minha senha" }).click();
+  const esqueci = page.getByRole("dialog", { name: "Esqueci minha senha" });
+  await esqueci.getByLabel("E-mail").fill("ninguem-aqui@teste.com");
+  await esqueci.getByRole("button", { name: "Enviar link" }).click();
+  await expect(esqueci.getByText("Se o e-mail existir, enviamos o link.")).toBeVisible();
+});
+
+test("link inválido avisa e oferece pedir outro", async ({ page }) => {
+  await page.goto("/redefinir-senha?erro=link");
+  await expect(page.getByText("Link inválido ou expirado.")).toBeVisible();
+  await page.getByRole("button", { name: "Pedir um novo link" }).click();
+  await expect(page.getByRole("dialog", { name: "Esqueci minha senha" })).toBeVisible();
+});
+```
+
+- [ ] **Passo 10: Rodar todos os testes**
+
+```bash
+npx supabase status   # o Supabase local precisa estar rodando
+npm test
+npm run lint
+npm run test:e2e
+```
+
+Esperado: todos PASSAM.
+
+- [ ] **Passo 11: Supabase na nuvem e variáveis no Vercel (ação manual do usuário)**
+
+Peça ao usuário, explicando cada passo:
+1. Entrar em https://supabase.com com a conta do GitHub e criar um projeto **claude-nextjs** na região **South America (São Paulo)**. Gerar uma senha forte para o banco e guardá-la num gerenciador de senhas.
+2. Em *Project Settings → API Keys*, copiar a **Project URL** e a **Publishable key**.
+3. No Vercel, em *Settings → Environment Variables*, cadastrar `NEXT_PUBLIC_SUPABASE_URL` e `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, marcando **Production** e **Preview**.
+4. No Supabase, em *Authentication → Sign In / Providers → Email*: desligar **Confirm email** e colocar a senha mínima em **8**.
+5. Em *Authentication → URL Configuration*: **Site URL** = o endereço de produção do Vercel (ex.: `https://claude-nextjs.vercel.app`). Em **Redirect URLs**, acrescentar `http://localhost:3000/**`.
+6. Em *Authentication → Email Templates → Reset Password*: assunto "Redefinir sua senha", e colar no corpo o conteúdo de `supabase/templates/recovery.html`.
+
+- [ ] **Passo 12: Commit, push e PR**
+
+```bash
+git add -A
+git commit -m "feat: contas com Supabase Auth, modal de login e recuperação de senha"
+git push -u origin tarefa-05-contas
+gh pr create --base main --head tarefa-05-contas --title "Contas com Supabase Auth" --body "$(cat <<'EOF'
+## O que muda
+- Modal de login com três modos: Entrar, Criar conta e Esqueci minha senha (sem sair da tela)
+- Conta só com e-mail e senha, sem confirmação de e-mail
+- Tela Conta (e-mail, Sair, créditos) e tela de nova senha pelo link do e-mail
+- "Voltar" fecha só o modal do topo
+
+## Como testar
+- Na prévia: criar conta, recarregar (continua logado), sair, entrar de novo
+- Esqueci minha senha: o e-mail chega pelo Supabase (limite de poucos envios por hora no plano gratuito)
+- Local: `npm run test:e2e -- auth`
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+EOF
+)"
+```
+
+**Pare aqui** e espere o "Squash and merge".
+
+---
+
+### Tarefa 6: Listas: banco, regras de acesso e API
+
+**Branch:** `tarefa-06-listas-api`
+
+**Arquivos:**
+- Criar: `supabase/migrations/<timestamp>_list_items.sql`, `src/lib/supabase/database.types.ts` (gerado), `src/lib/lists/types.ts`, `src/lib/lists/service.ts`, `src/lib/lists/validation.ts`, `src/app/api/listas/route.ts`, `src/app/api/listas/[movieId]/route.ts`, `vitest.integration.config.ts`, `tests/integration/setup-env.ts`, `tests/integration/helpers.ts`
+- Testes: `tests/integration/lists.test.ts`, `tests/unit/lists.test.ts`
+- Modificar: `src/lib/supabase/server.ts`, `src/lib/supabase/client.ts`, `src/lib/api/http.ts`
+
+**Interfaces:**
+- Consome: `createSupabaseServerClient()`, `getMovieService().getNetflixAvailability`, `jsonError` e `parseMovieId`.
+- Produz:
+  - o tipo `Database` (gerado);
+  - `LIST_TYPES`, `ListType`, `MovieSnapshot { tmdbMovieId; title; posterPath }`, `StoredListItem` e `ListItemDto` (= snapshot + `listType` + `createdAt: string` + `onNetflix: boolean|null`);
+  - `getListItems(supabase)`, `addToList(supabase, movie, listType)`, `removeFromList(supabase, tmdbMovieId, listType)` e `withAvailability(items, availability)`;
+  - `addListItemSchema`, `parseListType(value)` e `withSupabaseUser(handler)`;
+  - rotas `GET /api/listas` → `{ items: ListItemDto[] }`, `POST /api/listas` (corpo = snapshot + `listType`) → 204, e `DELETE /api/listas/{movieId}?lista=want|favorite` → 204, todas com 401 sem sessão.
+
+- [ ] **Passo 1: Criar a branch**
+
+```bash
+git switch main && git pull && git switch -c tarefa-06-listas-api
+```
+
+- [ ] **Passo 2: Migração da tabela, RLS e gatilho**
+
+```bash
+npx supabase migration new list_items
+```
+
+Colocar no arquivo criado (`supabase/migrations/<timestamp>_list_items.sql`):
+
+```sql
+-- Listas pessoais: "Quero assistir" e "Favoritos"
+create type public.list_type as enum ('want', 'favorite');
+
+create table public.list_items (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  tmdb_movie_id integer not null check (tmdb_movie_id > 0),
+  list_type public.list_type not null,
+  title text not null check (char_length(title) between 1 and 300),
+  poster_path text check (poster_path is null or poster_path like '/%'),
+  created_at timestamptz not null default now(),
+  unique (user_id, tmdb_movie_id, list_type)
+);
+
+create index list_items_user_created_idx on public.list_items (user_id, created_at desc);
+
+-- RLS: cada pessoa só enxerga, cria e apaga as próprias linhas (não há update)
+alter table public.list_items enable row level security;
+
+create policy "cada um lê os próprios itens" on public.list_items
+  for select to authenticated using ((select auth.uid()) = user_id);
+
+create policy "cada um cria os próprios itens" on public.list_items
+  for insert to authenticated with check ((select auth.uid()) = user_id);
+
+create policy "cada um apaga os próprios itens" on public.list_items
+  for delete to authenticated using ((select auth.uid()) = user_id);
+
+grant select, insert, delete on public.list_items to authenticated;
+
+-- Regra de negócio no próprio banco: marcar como favorito tira de "quero assistir"
+create function public.remove_want_when_favorite()
+returns trigger
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+begin
+  if new.list_type = 'favorite' then
+    delete from public.list_items
+    where user_id = new.user_id
+      and tmdb_movie_id = new.tmdb_movie_id
+      and list_type = 'want';
+  end if;
+  return new;
+end;
+$$;
+
+create trigger list_items_favorite_removes_want
+  after insert on public.list_items
+  for each row execute function public.remove_want_when_favorite();
+```
+
+```bash
+npx supabase db reset   # recria o banco local aplicando as migrações
+npx supabase gen types typescript --local > src/lib/supabase/database.types.ts
+npm pkg set scripts.db:types="supabase gen types typescript --local > src/lib/supabase/database.types.ts"
+```
+
+Esperado: `db reset` termina sem erro, e `database.types.ts` contém `list_items` e o enum `list_type`.
+
+- [ ] **Passo 3: Tipar os clientes do Supabase**
+
+Em `src/lib/supabase/server.ts`:
+- adicionar o import `import type { Database } from "./database.types";`;
+- trocar `createServerClient(` por `createServerClient<Database>(`.
+
+Em `src/lib/supabase/client.ts`:
+- adicionar o import `import type { Database } from "./database.types";`;
+- trocar a declaração de `client` e a criação por:
+
+```ts
+let client: ReturnType<typeof createBrowserClient<Database>> | undefined;
+
+export function getSupabaseBrowserClient() {
+  client ??= createBrowserClient<Database>(supabaseUrl(), supabaseKey());
+  return client;
+}
+```
+
+- [ ] **Passo 4: Tipos e testes de integração (falhando)**
 
 Criar `src/lib/lists/types.ts`:
 
@@ -3249,111 +3400,185 @@ export type StoredListItem = MovieSnapshot & { listType: ListType; createdAt: Da
 export type ListItemDto = MovieSnapshot & { listType: ListType; createdAt: string; onNetflix: boolean | null };
 ```
 
-- [ ] **Passo 2: Testes de integração das regras (falhando)**
+```bash
+npm pkg set scripts.test:integration="vitest run --config vitest.integration.config.ts"
+```
+
+Criar `vitest.integration.config.ts`:
+
+```ts
+import { fileURLToPath } from "node:url";
+import { defineConfig } from "vitest/config";
+
+export default defineConfig({
+  resolve: {
+    alias: {
+      "@": fileURLToPath(new URL("./src", import.meta.url)),
+      "server-only": fileURLToPath(new URL("./tests/stubs/empty.ts", import.meta.url)),
+    },
+  },
+  test: {
+    include: ["tests/integration/**/*.test.ts"],
+    environment: "node",
+    setupFiles: ["tests/integration/setup-env.ts"],
+    fileParallelism: false,
+    testTimeout: 20_000,
+  },
+});
+```
+
+Criar `tests/integration/setup-env.ts`:
+
+```ts
+import { loadEnvConfig } from "@next/env";
+
+loadEnvConfig(process.cwd());
+```
+
+Criar `tests/integration/helpers.ts`:
+
+```ts
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@/lib/supabase/database.types";
+
+export type TestClient = SupabaseClient<Database>;
+
+function newClient(): TestClient {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+  if (!url || !key) throw new Error("Variáveis do Supabase local ausentes no .env (rode `npx supabase status`)");
+  return createClient<Database>(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+}
+
+/** Cria uma conta nova no Supabase local e devolve um cliente logado com ela. */
+export async function newUser(): Promise<{ client: TestClient; userId: string }> {
+  const client = newClient();
+  const email = `int-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@teste.com`;
+  const { data, error } = await client.auth.signUp({ email, password: "senha-segura-123" });
+  if (error || !data.user || !data.session) throw error ?? new Error("cadastro sem sessão (confirmação de e-mail ligada?)");
+  return { client, userId: data.user.id };
+}
+
+export function anonymousClient(): TestClient {
+  return newClient();
+}
+```
 
 Criar `tests/integration/lists.test.ts`:
 
 ```ts
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { addToList, getListItems, removeFromList } from "@/lib/lists/service";
-import { createUser, resetDb, testDb } from "./helpers";
+import { anonymousClient, newUser } from "./helpers";
 
-const db = testDb();
 const filme = (id: number) => ({ tmdbMovieId: id, title: `Filme ${id}`, posterPath: `/p${id}.jpg` });
 
-beforeEach(async () => {
-  await resetDb(db);
-  await createUser(db, "ana");
-  await createUser(db, "bia");
-});
-afterAll(() => db.$client.end());
-
-describe("listas", () => {
+describe("listas no Supabase", () => {
   it("salva em Quero assistir guardando título e pôster", async () => {
-    await addToList(db, "ana", filme(1), "want");
-    const items = await getListItems(db, "ana");
+    const { client } = await newUser();
+    await addToList(client, filme(1), "want");
+    const items = await getListItems(client);
     expect(items).toHaveLength(1);
     expect(items[0]).toMatchObject({ tmdbMovieId: 1, title: "Filme 1", posterPath: "/p1.jpg", listType: "want" });
   });
 
   it("toque duplo (duas inserções ao mesmo tempo) não duplica", async () => {
-    await Promise.all([addToList(db, "ana", filme(1), "want"), addToList(db, "ana", filme(1), "want")]);
-    expect(await getListItems(db, "ana")).toHaveLength(1);
+    const { client } = await newUser();
+    await Promise.all([addToList(client, filme(1), "want"), addToList(client, filme(1), "want")]);
+    expect(await getListItems(client)).toHaveLength(1);
   });
 
-  it("marcar Favorito tira de Quero assistir", async () => {
-    await addToList(db, "ana", filme(1), "want");
-    await addToList(db, "ana", filme(1), "favorite");
-    const items = await getListItems(db, "ana");
-    expect(items.map((i) => i.listType)).toEqual(["favorite"]);
+  it("marcar Favorito tira de Quero assistir (gatilho no banco)", async () => {
+    const { client } = await newUser();
+    await addToList(client, filme(1), "want");
+    await addToList(client, filme(1), "favorite");
+    expect((await getListItems(client)).map((i) => i.listType)).toEqual(["favorite"]);
   });
 
   it("remove da lista", async () => {
-    await addToList(db, "ana", filme(1), "want");
-    await removeFromList(db, "ana", 1, "want");
-    expect(await getListItems(db, "ana")).toHaveLength(0);
+    const { client } = await newUser();
+    await addToList(client, filme(1), "want");
+    await removeFromList(client, 1, "want");
+    expect(await getListItems(client)).toHaveLength(0);
   });
 
   it("devolve os mais recentes primeiro", async () => {
-    await addToList(db, "ana", filme(1), "want");
-    await addToList(db, "ana", filme(2), "want");
-    expect((await getListItems(db, "ana")).map((i) => i.tmdbMovieId)).toEqual([2, 1]);
+    const { client } = await newUser();
+    await addToList(client, filme(1), "want");
+    await addToList(client, filme(2), "want");
+    expect((await getListItems(client)).map((i) => i.tmdbMovieId)).toEqual([2, 1]);
   });
 
-  it("cada pessoa só vê e altera a própria lista", async () => {
-    await addToList(db, "ana", filme(1), "want");
-    expect(await getListItems(db, "bia")).toHaveLength(0);
-    await removeFromList(db, "bia", 1, "want");
-    expect(await getListItems(db, "ana")).toHaveLength(1);
+  it("RLS: cada pessoa só vê e apaga a própria lista", async () => {
+    const ana = await newUser();
+    const bia = await newUser();
+    await addToList(ana.client, filme(1), "want");
+
+    expect(await getListItems(bia.client)).toHaveLength(0);
+    await removeFromList(bia.client, 1, "want");
+    expect(await getListItems(ana.client)).toHaveLength(1);
+  });
+
+  it("RLS: ninguém consegue gravar na lista de outra pessoa", async () => {
+    const ana = await newUser();
+    const bia = await newUser();
+    const { error } = await bia.client
+      .from("list_items")
+      .insert({ user_id: ana.userId, tmdb_movie_id: 5, list_type: "want", title: "Invasão" });
+    expect(error?.code).toBe("42501");
+    expect(await getListItems(ana.client)).toHaveLength(0);
+  });
+
+  it("RLS: visitante sem login não lê nada", async () => {
+    const ana = await newUser();
+    await addToList(ana.client, filme(1), "want");
+    const { data } = await anonymousClient().from("list_items").select("*");
+    expect(data ?? []).toHaveLength(0);
   });
 });
 ```
 
 Rodar: `npm run test:integration`. Esperado: FALHA (`@/lib/lists/service` inexistente).
 
-- [ ] **Passo 3: Implementar o serviço**
+- [ ] **Passo 5: Implementar o serviço**
 
 Criar `src/lib/lists/service.ts`:
 
 ```ts
-import { and, desc, eq } from "drizzle-orm";
-import type { Db } from "@/lib/db";
-import { listItems } from "@/lib/db/schema";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@/lib/supabase/database.types";
 import type { ListItemDto, ListType, MovieSnapshot, StoredListItem } from "./types";
 
-export async function addToList(db: Db, userId: string, movie: MovieSnapshot, listType: ListType): Promise<void> {
-  await db.transaction(async (tx) => {
-    await tx
-      .insert(listItems)
-      .values({ userId, tmdbMovieId: movie.tmdbMovieId, title: movie.title, posterPath: movie.posterPath, listType })
-      .onConflictDoNothing();
-    if (listType === "favorite") {
-      // Assistiu e gostou: sai da lista de desejos.
-      await tx
-        .delete(listItems)
-        .where(and(eq(listItems.userId, userId), eq(listItems.tmdbMovieId, movie.tmdbMovieId), eq(listItems.listType, "want")));
-    }
-  });
+type Client = SupabaseClient<Database>;
+
+const UNIQUE_VIOLATION = "23505";
+
+export async function getListItems(supabase: Client): Promise<StoredListItem[]> {
+  const { data, error } = await supabase
+    .from("list_items")
+    .select("tmdb_movie_id, title, poster_path, list_type, created_at")
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+  return data.map((row) => ({
+    tmdbMovieId: row.tmdb_movie_id,
+    title: row.title,
+    posterPath: row.poster_path,
+    listType: row.list_type,
+    createdAt: new Date(row.created_at),
+  }));
 }
 
-export async function removeFromList(db: Db, userId: string, tmdbMovieId: number, listType: ListType): Promise<void> {
-  await db
-    .delete(listItems)
-    .where(and(eq(listItems.userId, userId), eq(listItems.tmdbMovieId, tmdbMovieId), eq(listItems.listType, listType)));
+/** Salva na lista. Repetir não duplica; o gatilho do banco tira de "want" ao favoritar. */
+export async function addToList(supabase: Client, movie: MovieSnapshot, listType: ListType): Promise<void> {
+  const { error } = await supabase
+    .from("list_items")
+    .insert({ tmdb_movie_id: movie.tmdbMovieId, title: movie.title, poster_path: movie.posterPath, list_type: listType });
+  if (error && error.code !== UNIQUE_VIOLATION) throw new Error(error.message);
 }
 
-export async function getListItems(db: Db, userId: string): Promise<StoredListItem[]> {
-  return db
-    .select({
-      tmdbMovieId: listItems.tmdbMovieId,
-      title: listItems.title,
-      posterPath: listItems.posterPath,
-      listType: listItems.listType,
-      createdAt: listItems.createdAt,
-    })
-    .from(listItems)
-    .where(eq(listItems.userId, userId))
-    .orderBy(desc(listItems.createdAt));
+export async function removeFromList(supabase: Client, tmdbMovieId: number, listType: ListType): Promise<void> {
+  const { error } = await supabase.from("list_items").delete().eq("tmdb_movie_id", tmdbMovieId).eq("list_type", listType);
+  if (error) throw new Error(error.message);
 }
 
 /** Acrescenta a disponibilidade na Netflix. Se o TMDB falhar, o item segue com onNetflix = null. */
@@ -3377,9 +3602,9 @@ export async function withAvailability(
 }
 ```
 
-Rodar: `npm run test:integration`. Esperado: PASSA.
+Rodar: `npm run test:integration`. Esperado: PASSA (8 testes).
 
-- [ ] **Passo 4: Testes unitários de validação e disponibilidade (falhando)**
+- [ ] **Passo 6: Testes unitários de validação e disponibilidade (falhando)**
 
 Criar `tests/unit/lists.test.ts`:
 
@@ -3437,7 +3662,7 @@ describe("validação", () => {
 
 Rodar: `npm test`. Esperado: FALHA (`validation` inexistente).
 
-- [ ] **Passo 5: Implementar a validação**
+- [ ] **Passo 7: Validação e rotas**
 
 Criar `src/lib/lists/validation.ts`:
 
@@ -3459,33 +3684,55 @@ export function parseListType(value: string | null): ListType | null {
 
 Rodar: `npm test`. Esperado: PASSA.
 
-- [ ] **Passo 6: Rotas da API**
+Em `src/lib/api/http.ts`, acrescentar no fim:
+
+```ts
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@/lib/supabase/database.types";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+
+type UserContext = { supabase: SupabaseClient<Database>; userId: string };
+
+/** Exige sessão do Supabase; as consultas usam o cliente da própria pessoa (o RLS se aplica). */
+export async function withSupabaseUser(handler: (ctx: UserContext) => Promise<Response>): Promise<Response> {
+  const supabase = await createSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return jsonError(401, "unauthorized");
+  try {
+    return await handler({ supabase, userId: user.id });
+  } catch (error) {
+    console.error(error);
+    return jsonError(500, "internal_error");
+  }
+}
+```
+
+(Mova os novos `import` para o topo do arquivo, junto com o existente.)
 
 Criar `src/app/api/listas/route.ts`:
 
 ```ts
-import { jsonError, withUser } from "@/lib/api/http";
-import { getDb } from "@/lib/db";
+import { jsonError, withSupabaseUser } from "@/lib/api/http";
 import { addToList, getListItems, withAvailability } from "@/lib/lists/service";
 import { addListItemSchema } from "@/lib/lists/validation";
 import { getMovieService } from "@/lib/tmdb";
 
-export const dynamic = "force-dynamic";
-
-export async function GET(req: Request) {
-  return withUser(req, async (userId) => {
+export async function GET() {
+  return withSupabaseUser(async ({ supabase }) => {
     const movies = getMovieService();
-    const items = await withAvailability(await getListItems(getDb(), userId), (id) => movies.getNetflixAvailability(id));
+    const items = await withAvailability(await getListItems(supabase), (id) => movies.getNetflixAvailability(id));
     return Response.json({ items });
   });
 }
 
 export async function POST(req: Request) {
-  return withUser(req, async (userId) => {
+  return withSupabaseUser(async ({ supabase }) => {
     const parsed = addListItemSchema.safeParse(await req.json().catch(() => null));
     if (!parsed.success) return jsonError(400, "invalid_body");
     const { listType, ...movie } = parsed.data;
-    await addToList(getDb(), userId, movie, listType);
+    await addToList(supabase, movie, listType);
     return new Response(null, { status: 204 });
   });
 }
@@ -3494,26 +3741,23 @@ export async function POST(req: Request) {
 Criar `src/app/api/listas/[movieId]/route.ts`:
 
 ```ts
+import { jsonError, withSupabaseUser } from "@/lib/api/http";
 import { parseMovieId } from "@/lib/api/params";
-import { jsonError, withUser } from "@/lib/api/http";
-import { getDb } from "@/lib/db";
 import { removeFromList } from "@/lib/lists/service";
 import { parseListType } from "@/lib/lists/validation";
 
-export const dynamic = "force-dynamic";
-
 export async function DELETE(req: Request, { params }: { params: Promise<{ movieId: string }> }) {
-  return withUser(req, async (userId) => {
+  return withSupabaseUser(async ({ supabase }) => {
     const movieId = parseMovieId((await params).movieId);
     const listType = parseListType(new URL(req.url).searchParams.get("lista"));
     if (movieId === null || listType === null) return jsonError(400, "invalid_params");
-    await removeFromList(getDb(), userId, movieId, listType);
+    await removeFromList(supabase, movieId, listType);
     return new Response(null, { status: 204 });
   });
 }
 ```
 
-- [ ] **Passo 7: Conferir as rotas com `curl` (sem login: 401)**
+- [ ] **Passo 8: Conferir as rotas sem login (401)**
 
 Com `npm run dev` rodando:
 
@@ -3524,39 +3768,80 @@ curl -s -o /dev/null -w "%{http_code}\n" -X POST http://localhost:3000/api/lista
 
 Esperado: `401` nas duas.
 
-- [ ] **Passo 8: Rodar todos os testes**
+- [ ] **Passo 9: Rodar todos os testes**
 
 ```bash
 npm test
 npm run test:integration
+npm run lint
+npm run test:e2e
 ```
 
 Esperado: todos PASSAM.
 
-- [ ] **Passo 9: Commit e push**
+- [ ] **Passo 10: Levar a tabela para o Supabase da nuvem (ação manual do usuário + comando)**
+
+Peça ao usuário para rodar, no terminal dele (os dois comandos são interativos):
+
+```bash
+npx supabase login                      # abre o navegador para autorizar
+npx supabase link --project-ref <ref>   # o <ref> está na URL do projeto no painel; pede a senha do banco
+```
+
+Depois (pode ser o agente):
+
+```bash
+npx supabase db push
+```
+
+Esperado: a migração `list_items` aplicada na nuvem. Confira no painel do Supabase, em *Table Editor*, que a tabela existe e mostra "RLS enabled".
+
+- [ ] **Passo 11: Commit, push e PR**
 
 ```bash
 git add -A
-git commit -m "feat: serviço e API das listas com regra de favoritos e isolamento por usuário
+git commit -m "feat: tabela das listas com RLS, gatilho de favoritos e API"
+git push -u origin tarefa-06-listas-api
+gh pr create --base main --head tarefa-06-listas-api --title "Listas: banco, RLS e API" --body "$(cat <<'EOF'
+## O que muda
+- Tabela `list_items` no Supabase com RLS: cada pessoa só lê, cria e apaga as próprias linhas
+- Gatilho no banco: favoritar tira o filme de "Quero assistir"
+- Rotas `/api/listas` (listar com selo da Netflix, adicionar e remover)
+- Testes de integração contra o Supabase local (inclusive tentativas de acessar a lista de outra pessoa)
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
-git push
+## Como testar
+- `npm run test:integration` (Supabase local rodando)
+- Painel do Supabase: tabela `list_items` com "RLS enabled"
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+EOF
+)"
 ```
+
+**Pare aqui** e espere o "Squash and merge".
 
 ---
 
-### Tarefa 8: Listas: telas
+### Tarefa 7: Listas: telas e "salvar depois do login"
+
+**Branch:** `tarefa-07-listas-telas`
 
 **Arquivos:**
-- Criar: `src/lib/lists/toggle.ts`, `src/components/lists/ListsProvider.tsx`, `src/components/lists/ListButtons.tsx`, `src/components/lists/ListsView.tsx`, `src/app/(app)/listas/page.tsx`
+- Criar: `src/lib/lists/toggle.ts`, `src/components/lists/ListsProvider.tsx`, `src/components/lists/ListButtons.tsx`, `src/components/lists/ListsView.tsx`, `src/app/listas/page.tsx`
 - Testes: `tests/unit/toggle.test.ts`, `tests/e2e/lists.spec.ts`
-- Modificar: `src/app/(app)/layout.tsx`, `src/components/NavBar.tsx`, `src/components/CatalogView.tsx`
+- Modificar: `src/app/layout.tsx`, `src/components/CatalogView.tsx`
 
 **Interfaces:**
-- Consome: `apiFetch`, `errorMessage`, `ListItemDto`, `ListType`, `MovieSnapshot`, `MovieGrid`, `MovieModal` (prop `actions`), `ListMarks`, `StatusMessage` e `requirePageSession`.
-- Produz: `applyToggle(items, movie, listType, on, now): ListItemDto[]`; `<ListsProvider>` e `useLists()` → `{ items, loaded, error, marksFor(id): ListMarks, isPending(id, listType), toggle(movie, listType) }`; `<ListButtons movie />`; a página `/listas`.
+- Consome: `useAuth()`, `apiFetch`, `UnauthorizedError`, `errorMessage`, `ListItemDto`, `ListType`, `MovieSnapshot`, `MovieGrid`, `MovieModal` (prop `actions`), `ListMarks`, `StatusMessage`, e os helpers E2E.
+- Produz: `applyToggle(items, movie, listType, on, now)`; `<ListsProvider>` e `useLists()` → `{ items, loaded, error, marksFor(id), isPending(id, listType), toggle(movie, listType) }`; `<ListButtons movie />`; a página `/listas`.
 
-- [ ] **Passo 1: Teste de `applyToggle` (falhando)**
+- [ ] **Passo 1: Criar a branch**
+
+```bash
+git switch main && git pull && git switch -c tarefa-07-listas-telas
+```
+
+- [ ] **Passo 2: Teste de `applyToggle` (falhando)**
 
 Criar `tests/unit/toggle.test.ts`:
 
@@ -3584,8 +3869,7 @@ describe("applyToggle", () => {
   });
 
   it("favoritar tira de Quero assistir", () => {
-    const result = applyToggle([item(1, "want")], filme, "favorite", true, now);
-    expect(result.map((i) => i.listType)).toEqual(["favorite"]);
+    expect(applyToggle([item(1, "want")], filme, "favorite", true, now).map((i) => i.listType)).toEqual(["favorite"]);
   });
 
   it("não duplica se já estiver na lista", () => {
@@ -3600,12 +3884,12 @@ describe("applyToggle", () => {
 
 Rodar: `npm test`. Esperado: FALHA.
 
-- [ ] **Passo 2: Implementar `src/lib/lists/toggle.ts`**
+- [ ] **Passo 3: Implementar `src/lib/lists/toggle.ts`**
 
 ```ts
 import type { ListItemDto, ListType, MovieSnapshot } from "./types";
 
-/** Atualização otimista da tela; espelha as regras do servidor (lib/lists/service.ts). */
+/** Atualização otimista da tela; espelha as regras do banco (o gatilho de favoritos). */
 export function applyToggle(items: ListItemDto[], movie: MovieSnapshot, listType: ListType, on: boolean, now: Date): ListItemDto[] {
   const same = (i: ListItemDto, type: ListType) => i.tmdbMovieId === movie.tmdbMovieId && i.listType === type;
   if (!on) return items.filter((i) => !same(i, listType));
@@ -3617,68 +3901,104 @@ export function applyToggle(items: ListItemDto[], movie: MovieSnapshot, listType
 
 Rodar: `npm test`. Esperado: PASSA.
 
-- [ ] **Passo 3: Teste E2E das listas (falhando)**
+- [ ] **Passo 4: Teste E2E das listas (falhando)**
 
 Criar `tests/e2e/lists.spec.ts`:
 
 ```ts
 import { expect, test } from "@playwright/test";
-import { logIn, logOut, signUp } from "./helpers";
+import { logIn, logOut, PASSWORD, scrollY, signUp, uniqueEmail } from "./helpers";
 
-test("salvar em Quero assistir e encontrar na lista", async ({ page }) => {
-  await signUp(page);
-  await page.getByRole("button", { name: "Filme 101", exact: true }).click();
-  const dialog = page.getByRole("dialog");
-  const quero = dialog.getByRole("button", { name: "Quero assistir" });
-  await quero.click();
-  await expect(quero).toHaveAttribute("aria-pressed", "true");
-  await page.keyboard.press("Escape");
+test("salvar sem estar logado: login no modal, filme salvo e lista no mesmo lugar", async ({ page }) => {
+  await page.goto("/");
+  const card = page.getByRole("button", { name: "Filme 115", exact: true });
+  await card.scrollIntoViewIfNeeded();
+  await page.mouse.wheel(0, 200);
+  await page.waitForTimeout(300);
+  const before = await scrollY(page);
 
-  await expect(page.getByRole("button", { name: "Filme 101", exact: true }).locator('[data-mark="want"]')).toBeVisible();
+  await card.click();
+  const detalhes = page.getByRole("dialog", { name: "Filme 115" });
+  await detalhes.getByRole("button", { name: "Quero assistir" }).click();
 
-  await page.getByRole("link", { name: "Minhas listas" }).click();
-  await expect(page.getByRole("tab", { name: "Quero assistir" })).toHaveAttribute("aria-selected", "true");
-  const card = page.getByRole("button", { name: "Filme 101", exact: true });
-  await expect(card).toBeVisible();
-  await expect(card.getByText("Na Netflix", { exact: true })).toBeVisible();
+  await page.getByRole("dialog", { name: "Entrar" }).getByRole("button", { name: "Criar conta" }).click();
+  const criar = page.getByRole("dialog", { name: "Criar conta" });
+  await criar.getByLabel("E-mail").fill(uniqueEmail());
+  await criar.getByLabel("Senha").fill(PASSWORD);
+  await criar.getByRole("button", { name: "Criar conta" }).click();
+
+  await expect(criar).toBeHidden();
+  await expect(detalhes).toBeVisible();
+  await expect(detalhes.getByRole("button", { name: "Quero assistir" })).toHaveAttribute("aria-pressed", "true");
+
+  await detalhes.getByRole("button", { name: "Fechar" }).click();
+  await expect(detalhes).toBeHidden();
+  expect(await scrollY(page)).toBe(before);
+  await expect(card.locator('[data-mark="want"]')).toBeVisible();
+});
+
+test("voltar com dois modais abertos fecha só o de cima", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Filme 105", exact: true }).click();
+  const detalhes = page.getByRole("dialog", { name: "Filme 105" });
+  await detalhes.getByRole("button", { name: "Quero assistir" }).click();
+  await expect(page.getByRole("dialog", { name: "Entrar" })).toBeVisible();
+
+  await page.goBack();
+  await expect(page.getByRole("dialog", { name: "Entrar" })).toBeHidden();
+  await expect(detalhes).toBeVisible();
+
+  await page.goBack();
+  await expect(detalhes).toBeHidden();
+  await expect(page).toHaveURL("/");
 });
 
 test("marcar Favorito move o filme para Favoritos", async ({ page }) => {
+  await page.goto("/");
   await signUp(page);
   await page.getByRole("button", { name: "Filme 102", exact: true }).click();
-  const dialog = page.getByRole("dialog");
-  await dialog.getByRole("button", { name: "Quero assistir" }).click();
-  await dialog.getByRole("button", { name: "Favorito" }).click();
-  await expect(dialog.getByRole("button", { name: "Quero assistir" })).toHaveAttribute("aria-pressed", "false");
-  await expect(dialog.getByRole("button", { name: "Favorito" })).toHaveAttribute("aria-pressed", "true");
+  const detalhes = page.getByRole("dialog", { name: "Filme 102" });
+  await detalhes.getByRole("button", { name: "Quero assistir" }).click();
+  await expect(detalhes.getByRole("button", { name: "Quero assistir" })).toHaveAttribute("aria-pressed", "true");
+  await detalhes.getByRole("button", { name: "Favorito" }).click();
+  await expect(detalhes.getByRole("button", { name: "Quero assistir" })).toHaveAttribute("aria-pressed", "false");
+  await expect(detalhes.getByRole("button", { name: "Favorito" })).toHaveAttribute("aria-pressed", "true");
   await page.keyboard.press("Escape");
 
   await page.getByRole("link", { name: "Minhas listas" }).click();
   await expect(page.getByText("Nenhum filme aqui ainda.")).toBeVisible();
   await page.getByRole("tab", { name: "Favoritos" }).click();
-  await expect(page.getByRole("button", { name: "Filme 102", exact: true })).toBeVisible();
+  const card = page.getByRole("button", { name: "Filme 102", exact: true });
+  await expect(card).toBeVisible();
+  await expect(card.getByText("Na Netflix", { exact: true })).toBeVisible();
 });
 
 test("filme fora da Netflix também pode ser salvo", async ({ page }) => {
+  await page.goto("/");
   await signUp(page);
   await page.getByLabel("Buscar filme pelo nome").fill("achado");
   await page.getByRole("button", { name: "Achado fora da Netflix" }).click();
-  await page.getByRole("dialog").getByRole("button", { name: "Quero assistir" }).click();
+  const detalhes = page.getByRole("dialog", { name: "Achado fora da Netflix" });
+  await detalhes.getByRole("button", { name: "Quero assistir" }).click();
+  await expect(detalhes.getByRole("button", { name: "Quero assistir" })).toHaveAttribute("aria-pressed", "true");
   await page.keyboard.press("Escape");
   await page.getByRole("link", { name: "Minhas listas" }).click();
   await expect(page.getByRole("button", { name: "Achado fora da Netflix" }).getByText("Fora da Netflix", { exact: true })).toBeVisible();
 });
 
-test("cada pessoa só vê a própria lista e ela continua depois de sair", async ({ page, browser }) => {
-  const ana = await signUp(page, { name: "Ana" });
+test("cada pessoa só vê a própria lista, e ela continua depois de sair", async ({ page, browser }) => {
+  await page.goto("/");
+  const ana = await signUp(page);
   await page.getByRole("button", { name: "Filme 103", exact: true }).click();
-  await page.getByRole("dialog").getByRole("button", { name: "Quero assistir" }).click();
-  await expect(page.getByRole("dialog").getByRole("button", { name: "Quero assistir" })).toHaveAttribute("aria-pressed", "true");
+  const detalhes = page.getByRole("dialog", { name: "Filme 103" });
+  await detalhes.getByRole("button", { name: "Quero assistir" }).click();
+  await expect(detalhes.getByRole("button", { name: "Quero assistir" })).toHaveAttribute("aria-pressed", "true");
   await page.keyboard.press("Escape");
 
   const outro = await browser.newContext();
   const biaPage = await outro.newPage();
-  await signUp(biaPage, { name: "Bia" });
+  await biaPage.goto("/");
+  await signUp(biaPage);
   await biaPage.goto("/listas");
   await expect(biaPage.getByText("Nenhum filme aqui ainda.")).toBeVisible();
   await outro.close();
@@ -3688,11 +4008,37 @@ test("cada pessoa só vê a própria lista e ela continua depois de sair", async
   await page.goto("/listas");
   await expect(page.getByRole("button", { name: "Filme 103", exact: true })).toBeVisible();
 });
+
+test("Minhas listas sem login convida a entrar", async ({ page }) => {
+  await page.goto("/listas");
+  await expect(page.getByText("Entre para ver suas listas.")).toBeVisible();
+  await page.getByRole("main").getByRole("button", { name: "Entrar" }).click();
+  await expect(page.getByRole("dialog", { name: "Entrar" })).toBeVisible();
+});
+
+test("sessão perdida ao salvar: o login abre e o filme é salvo depois", async ({ page, context }) => {
+  await page.goto("/");
+  const conta = await signUp(page);
+  await context.clearCookies(); // a tela ainda acha que está logada, mas o servidor não
+
+  await page.getByRole("button", { name: "Filme 104", exact: true }).click();
+  const detalhes = page.getByRole("dialog", { name: "Filme 104" });
+  await detalhes.getByRole("button", { name: "Quero assistir" }).click();
+
+  const entrar = page.getByRole("dialog", { name: "Entrar" });
+  await expect(entrar).toBeVisible();
+  await entrar.getByLabel("E-mail").fill(conta.email);
+  await entrar.getByLabel("Senha").fill(conta.password);
+  await entrar.getByRole("button", { name: "Entrar" }).click();
+
+  await expect(entrar).toBeHidden();
+  await expect(detalhes.getByRole("button", { name: "Quero assistir" })).toHaveAttribute("aria-pressed", "true");
+});
 ```
 
 Rodar: `npm run test:e2e -- lists`. Esperado: FALHA.
 
-- [ ] **Passo 4: Provider das listas**
+- [ ] **Passo 5: Provider das listas**
 
 Criar `src/components/lists/ListsProvider.tsx`:
 
@@ -3700,8 +4046,9 @@ Criar `src/components/lists/ListsProvider.tsx`:
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useAuth } from "@/components/auth/AuthProvider";
 import type { ListMarks } from "@/components/MovieCard";
-import { apiFetch, errorMessage } from "@/lib/api-client";
+import { apiFetch, errorMessage, UnauthorizedError } from "@/lib/api-client";
 import { applyToggle } from "@/lib/lists/toggle";
 import type { ListItemDto, ListType, MovieSnapshot } from "@/lib/lists/types";
 
@@ -3711,7 +4058,7 @@ type ListsContextValue = {
   error: string | null;
   marksFor: (tmdbMovieId: number) => ListMarks;
   isPending: (tmdbMovieId: number, listType: ListType) => boolean;
-  toggle: (movie: MovieSnapshot, listType: ListType) => Promise<void>;
+  toggle: (movie: MovieSnapshot, listType: ListType) => void;
 };
 
 const ListsContext = createContext<ListsContextValue | null>(null);
@@ -3723,12 +4070,18 @@ export function useLists(): ListsContextValue {
 }
 
 export function ListsProvider({ children }: { children: React.ReactNode }) {
+  const { user, openAuth } = useAuth();
   const [items, setItems] = useState<ListItemDto[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<ReadonlySet<string>>(new Set());
   const pendingRef = useRef(new Set<string>());
+  const itemsRef = useRef(items);
   const [toast, setToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
 
   const refresh = useCallback(async () => {
     try {
@@ -3736,21 +4089,67 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
       setItems(data.items);
       setError(null);
     } catch (e) {
-      setError(errorMessage(e));
+      if (e instanceof UnauthorizedError) setItems([]);
+      else setError(errorMessage(e));
     } finally {
       setLoaded(true);
     }
   }, []);
 
+  // carrega ao entrar, limpa ao sair
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    if (user) {
+      void refresh();
+    } else {
+      setItems([]);
+      setLoaded(true);
+    }
+  }, [user, refresh]);
 
   useEffect(() => {
     if (!toast) return;
     const timer = setTimeout(() => setToast(null), 3000);
     return () => clearTimeout(timer);
   }, [toast]);
+
+  const setMembership = useCallback(
+    async (movie: MovieSnapshot, listType: ListType, on: boolean): Promise<void> => {
+      const key = `${movie.tmdbMovieId}:${listType}`;
+      if (pendingRef.current.has(key)) return; // ignora o segundo toque enquanto o primeiro não termina
+      pendingRef.current.add(key);
+      setPending(new Set(pendingRef.current));
+      setItems((prev) => applyToggle(prev, movie, listType, on, new Date()));
+      try {
+        if (on) await apiFetch("/api/listas", { method: "POST", body: JSON.stringify({ ...movie, listType }) });
+        else await apiFetch(`/api/listas/${movie.tmdbMovieId}?lista=${listType}`, { method: "DELETE" });
+      } catch (e) {
+        if (e instanceof UnauthorizedError) {
+          // sessão perdida: pede login e conclui a mesma ação depois
+          openAuth({ onSuccess: () => void setMembership(movie, listType, on) });
+        } else {
+          setToast("Não foi possível salvar. Tente de novo.");
+        }
+      } finally {
+        pendingRef.current.delete(key);
+        setPending(new Set(pendingRef.current));
+        void refresh(); // a verdade vem do servidor (datas, disponibilidade e, em caso de falha, o estado anterior)
+      }
+    },
+    [openAuth, refresh],
+  );
+
+  const toggle = useCallback(
+    (movie: MovieSnapshot, listType: ListType) => {
+      if (!user) {
+        // sem login: abre o modal e, depois de entrar, só ADICIONA (nunca remove)
+        openAuth({ onSuccess: () => void setMembership(movie, listType, true) });
+        return;
+      }
+      const isIn = itemsRef.current.some((i) => i.tmdbMovieId === movie.tmdbMovieId && i.listType === listType);
+      void setMembership(movie, listType, !isIn);
+    },
+    [user, openAuth, setMembership],
+  );
 
   const marksFor = useCallback(
     (id: number): ListMarks => ({
@@ -3762,41 +4161,13 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
 
   const isPending = useCallback((id: number, listType: ListType) => pending.has(`${id}:${listType}`), [pending]);
 
-  const toggle = useCallback(
-    async (movie: MovieSnapshot, listType: ListType) => {
-      const key = `${movie.tmdbMovieId}:${listType}`;
-      if (pendingRef.current.has(key)) return; // ignora o segundo toque enquanto o primeiro não termina
-      pendingRef.current.add(key);
-      setPending(new Set(pendingRef.current));
-
-      const on = !items.some((i) => i.tmdbMovieId === movie.tmdbMovieId && i.listType === listType);
-      const previous = items;
-      setItems(applyToggle(items, movie, listType, on, new Date()));
-      try {
-        if (on) {
-          await apiFetch("/api/listas", { method: "POST", body: JSON.stringify({ ...movie, listType }) });
-        } else {
-          await apiFetch(`/api/listas/${movie.tmdbMovieId}?lista=${listType}`, { method: "DELETE" });
-        }
-        void refresh(); // pega datas e disponibilidade oficiais do servidor
-      } catch {
-        setItems(previous);
-        setToast("Não foi possível salvar. Tente de novo.");
-      } finally {
-        pendingRef.current.delete(key);
-        setPending(new Set(pendingRef.current));
-      }
-    },
-    [items, refresh],
-  );
-
   const value = useMemo(() => ({ items, loaded, error, marksFor, isPending, toggle }), [items, loaded, error, marksFor, isPending, toggle]);
 
   return (
     <ListsContext.Provider value={value}>
       {children}
       {toast && (
-        <div role="alert" className="fixed inset-x-4 bottom-20 z-[60] rounded-md bg-neutral-800 p-3 text-center text-sm shadow-lg md:bottom-4">
+        <div role="alert" className="fixed inset-x-4 bottom-20 z-[70] rounded-md bg-neutral-800 p-3 text-center text-sm shadow-lg md:bottom-4">
           {toast}
         </div>
       )}
@@ -3805,7 +4176,7 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
 }
 ```
 
-- [ ] **Passo 5: Botões e tela das listas**
+- [ ] **Passo 6: Botões, tela das listas e ligações**
 
 Criar `src/components/lists/ListButtons.tsx`:
 
@@ -3854,6 +4225,7 @@ Criar `src/components/lists/ListsView.tsx`:
 "use client";
 
 import { useState } from "react";
+import { useAuth } from "@/components/auth/AuthProvider";
 import { MovieGrid } from "@/components/MovieGrid";
 import { MovieModal } from "@/components/MovieModal";
 import { StatusMessage } from "@/components/StatusMessage";
@@ -3868,9 +4240,21 @@ const TABS: { listType: ListType; label: string }[] = [
 ];
 
 export function ListsView() {
+  const { user, openAuth } = useAuth();
   const { items, loaded, error, marksFor } = useLists();
   const [tab, setTab] = useState<ListType>("want");
   const [selected, setSelected] = useState<MovieSummary | null>(null);
+
+  if (!user) {
+    return (
+      <div className="mx-auto max-w-md space-y-4 p-6 text-center">
+        <p className="text-sm text-neutral-300">Entre para ver suas listas.</p>
+        <button type="button" onClick={() => openAuth()} className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white">
+          Entrar
+        </button>
+      </div>
+    );
+  }
 
   const movies: MovieSummary[] = items
     .filter((i) => i.listType === tab)
@@ -3902,46 +4286,27 @@ export function ListsView() {
 }
 ```
 
-Criar `src/app/(app)/listas/page.tsx`:
+Criar `src/app/listas/page.tsx`:
 
 ```tsx
 import { ListsView } from "@/components/lists/ListsView";
-import { requirePageSession } from "@/lib/session";
 
-export default async function ListasPage() {
-  await requirePageSession("/listas");
+export default function ListasPage() {
   return <ListsView />;
 }
 ```
 
-- [ ] **Passo 6: Ligar as listas ao app**
-
-Substituir `src/app/(app)/layout.tsx` por:
+Em `src/app/layout.tsx`:
+- adicionar o import `import { ListsProvider } from "@/components/lists/ListsProvider";`;
+- envolver `<NavBar />` e `<main>` com `<ListsProvider>`, por dentro do `<AuthProvider>`:
 
 ```tsx
-import { ListsProvider } from "@/components/lists/ListsProvider";
-import { NavBar } from "@/components/NavBar";
-
-export default function AppLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <ListsProvider>
-      <div className="min-h-dvh">
-        <NavBar />
-        <main className="pb-16 md:pb-0">{children}</main>
-      </div>
-    </ListsProvider>
-  );
-}
-```
-
-Em `src/components/NavBar.tsx`, trocar `LINKS` por:
-
-```ts
-const LINKS = [
-  { href: "/", label: "Catálogo" },
-  { href: "/listas", label: "Minhas listas" },
-  { href: "/conta", label: "Conta" },
-];
+        <AuthProvider initialUser={user ? { id: user.id, email: user.email ?? "" } : null}>
+          <ListsProvider>
+            <NavBar />
+            <main className="pb-16 md:pb-0">{children}</main>
+          </ListsProvider>
+        </AuthProvider>
 ```
 
 Em `src/components/CatalogView.tsx`:
@@ -3955,638 +4320,111 @@ Em `src/components/CatalogView.tsx`:
 ```bash
 npm test
 npm run test:integration
+npm run lint
 npm run test:e2e
 ```
 
 Esperado: todos PASSAM.
 
-- [ ] **Passo 8: Commit e push**
+- [ ] **Passo 8: Commit, push e PR**
 
 ```bash
 git add -A
-git commit -m "feat: telas das listas Quero assistir e Favoritos
+git commit -m "feat: telas das listas e salvar filme depois do login"
+git push -u origin tarefa-07-listas-telas
+gh pr create --base main --head tarefa-07-listas-telas --title "Listas: telas e salvar depois do login" --body "$(cat <<'EOF'
+## O que muda
+- Botões "Quero assistir" e "Favorito" no modal de detalhes
+- Sem login: o modal de login abre por cima, e depois de entrar o filme é salvo (a rolagem não sai do lugar)
+- Tela "Minhas listas" com abas, selo da Netflix e o mesmo modal do catálogo
+- Ícone nos pôsteres dos filmes que já estão nas listas
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
-git push
+## Como testar
+- Na prévia pelo celular: sem login, role, abra um filme, toque em "Quero assistir", crie a conta e veja o filme salvo
+- Local: `npm run test:e2e -- lists`
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+EOF
+)"
 ```
+
+**Pare aqui** e espere o "Squash and merge".
 
 ---
 
-### Tarefa 9: "Esqueci minha senha"
+### Tarefa 8: Produção e acabamento
+
+**Branch:** `tarefa-08-producao`
 
 **Arquivos:**
-- Criar: `src/lib/mailer.ts`, `src/app/(auth)/esqueci-senha/page.tsx`, `src/app/(auth)/esqueci-senha/ForgotPasswordForm.tsx`, `src/app/(auth)/redefinir-senha/page.tsx`, `src/app/(auth)/redefinir-senha/ResetPasswordForm.tsx`
-- Testes: `tests/unit/mailer.test.ts`, `tests/e2e/reset-password.spec.ts`
-- Modificar: `src/lib/auth.ts`, `src/app/(auth)/entrar/page.tsx`, `src/app/(auth)/entrar/LoginForm.tsx`
-
-**Interfaces:**
-- Consome: `getEnv()`, `Env`, `createAuth`, `authClient`, `TextField` e os helpers E2E.
-- Produz: `Mailer { send(msg) }`, `createMailer(env)`, `getMailer()`, `resetPasswordEmail(name, url)` e a nova assinatura `createAuth(db, env, mailer)`.
-
-- [ ] **Passo 1: Teste do e-mail (falhando)**
-
-```bash
-npm install nodemailer
-npm install -D @types/nodemailer
-```
-
-Criar `tests/unit/mailer.test.ts`:
-
-```ts
-import { describe, expect, it } from "vitest";
-import { resetPasswordEmail } from "@/lib/mailer";
-
-describe("resetPasswordEmail", () => {
-  it("cumprimenta pelo nome e traz o link", () => {
-    const email = resetPasswordEmail("Ana", "http://localhost:3000/api/auth/reset-password/abc");
-    expect(email.subject).toBe("Redefinir sua senha");
-    expect(email.text).toContain("Olá, Ana!");
-    expect(email.text).toContain("http://localhost:3000/api/auth/reset-password/abc");
-    expect(email.text).toContain("1 hora");
-  });
-});
-```
-
-Rodar: `npm test`. Esperado: FALHA.
-
-- [ ] **Passo 2: Implementar `src/lib/mailer.ts`**
-
-```ts
-import nodemailer from "nodemailer";
-import { getEnv, type Env } from "@/lib/env";
-
-export type MailMessage = { to: string; subject: string; text: string };
-export type Mailer = { send: (message: MailMessage) => Promise<void> };
-
-export function createMailer(env: Pick<Env, "SMTP_HOST" | "SMTP_PORT" | "SMTP_USER" | "SMTP_PASS" | "SMTP_FROM">): Mailer {
-  const transport = nodemailer.createTransport({
-    host: env.SMTP_HOST,
-    port: env.SMTP_PORT,
-    secure: env.SMTP_PORT === 465,
-    auth: env.SMTP_USER ? { user: env.SMTP_USER, pass: env.SMTP_PASS } : undefined,
-  });
-  return {
-    async send(message) {
-      await transport.sendMail({ from: env.SMTP_FROM, ...message });
-    },
-  };
-}
-
-let cached: Mailer | undefined;
-
-export function getMailer(): Mailer {
-  cached ??= createMailer(getEnv());
-  return cached;
-}
-
-export function resetPasswordEmail(name: string, url: string): Omit<MailMessage, "to"> {
-  return {
-    subject: "Redefinir sua senha",
-    text: [
-      `Olá, ${name}!`,
-      "",
-      "Recebemos um pedido para redefinir sua senha. Para criar uma nova, abra o link abaixo (válido por 1 hora):",
-      "",
-      url,
-      "",
-      "Se não foi você, ignore este e-mail. Sua senha continua a mesma.",
-    ].join("\n"),
-  };
-}
-```
-
-Rodar: `npm test`. Esperado: PASSA.
-
-- [ ] **Passo 3: Ligar o e-mail ao Better Auth**
-
-Em `src/lib/auth.ts`:
-- adicionar o import `import { getMailer, resetPasswordEmail, type Mailer } from "@/lib/mailer";`;
-- mudar a assinatura para `export function createAuth(db: Db, env: Env, mailer: Mailer) {`;
-- trocar o bloco `emailAndPassword` por:
-
-```ts
-    emailAndPassword: {
-      enabled: true,
-      minPasswordLength: 8,
-      autoSignIn: true,
-      resetPasswordTokenExpiresIn: 60 * 60, // 1 hora
-      revokeSessionsOnPasswordReset: true, // trocar a senha desconecta os outros aparelhos
-      sendResetPassword: async ({ user, url }) => {
-        // Sem await: a resposta leva o mesmo tempo exista ou não a conta.
-        void mailer.send({ to: user.email, ...resetPasswordEmail(user.name, url) }).catch((e) => console.error("Falha ao enviar e-mail de senha", e));
-      },
-    },
-```
-
-- acrescentar dois itens em `rateLimit.customRules` (o nome do endpoint mudou entre versões do Better Auth, então os dois ficam):
-
-```ts
-        "/request-password-reset": { window: 60, max: 3 },
-        "/forget-password": { window: 60, max: 3 },
-```
-
-- em `getAuth()`, trocar `createAuth(getDb(), getEnv())` por `createAuth(getDb(), getEnv(), getMailer())`.
-
-- [ ] **Passo 4: Teste E2E (falhando)**
-
-Criar `tests/e2e/reset-password.spec.ts`:
-
-```ts
-import { expect, test, type APIRequestContext } from "@playwright/test";
-import { logIn, logOut, PASSWORD, signUp } from "./helpers";
-
-const MAILPIT = "http://localhost:8025";
-
-/** Busca no Mailpit o link de redefinição mais recente enviado para o e-mail. */
-async function resetLinkFor(request: APIRequestContext, email: string): Promise<string> {
-  for (let attempt = 0; attempt < 20; attempt++) {
-    const list = await (await request.get(`${MAILPIT}/api/v1/messages`)).json();
-    const message = list.messages?.find((m: { To: { Address: string }[] }) => m.To.some((to) => to.Address === email));
-    if (message) {
-      const full = await (await request.get(`${MAILPIT}/api/v1/message/${message.ID}`)).json();
-      const link = (full.Text as string).match(/https?:\/\/\S+/)?.[0];
-      if (link) return link;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 500));
-  }
-  throw new Error(`Nenhum e-mail de redefinição para ${email}`);
-}
-
-test("redefinir a senha pelo e-mail e desconectar os outros aparelhos", async ({ page, browser, request }) => {
-  // aparelho 1: cria a conta e continua logado
-  const outroAparelho = await browser.newContext();
-  const aparelho1 = await outroAparelho.newPage();
-  const conta = await signUp(aparelho1);
-
-  // aparelho 2: pede o link
-  await page.goto("/entrar");
-  await page.getByRole("link", { name: "Esqueci minha senha" }).click();
-  await page.getByLabel("E-mail").fill(conta.email);
-  await page.getByRole("button", { name: "Enviar link" }).click();
-  await expect(page.getByText("Se o e-mail existir, enviamos o link.")).toBeVisible();
-
-  // abre o link do e-mail e cria a nova senha
-  await page.goto(await resetLinkFor(request, conta.email));
-  await expect(page).toHaveURL(/\/redefinir-senha\?token=/);
-  await page.getByLabel("Nova senha", { exact: true }).fill("senha-nova-456");
-  await page.getByLabel("Confirmar nova senha").fill("senha-nova-456");
-  await page.getByRole("button", { name: "Salvar nova senha" }).click();
-  await expect(page).toHaveURL("/entrar?senha=redefinida");
-  await expect(page.getByText("Senha alterada. Entre com a nova senha.")).toBeVisible();
-
-  // a senha antiga não funciona mais; a nova sim
-  await logIn(page, conta.email, PASSWORD);
-  await expect(page.getByRole("alert")).toHaveText("E-mail ou senha incorretos.");
-  await logIn(page, conta.email, "senha-nova-456");
-  await expect(page).toHaveURL("/");
-
-  // o aparelho 1 foi desconectado
-  await aparelho1.goto("/conta");
-  await expect(aparelho1).toHaveURL(/\/entrar/);
-  await outroAparelho.close();
-  await logOut(page);
-});
-
-test("e-mail sem conta recebe a mesma resposta", async ({ page }) => {
-  await page.goto("/esqueci-senha");
-  await page.getByLabel("E-mail").fill("ninguem-aqui@teste.com");
-  await page.getByRole("button", { name: "Enviar link" }).click();
-  await expect(page.getByText("Se o e-mail existir, enviamos o link.")).toBeVisible();
-});
-
-test("link inválido avisa e oferece pedir outro", async ({ page }) => {
-  await page.goto("/redefinir-senha?error=INVALID_TOKEN");
-  await expect(page.getByText("Link inválido ou expirado.")).toBeVisible();
-  await expect(page.getByRole("link", { name: "Pedir um novo link" })).toBeVisible();
-});
-```
-
-Rodar: `npm run test:e2e -- reset-password`. Esperado: FALHA. O Mailpit precisa estar de pé (`docker compose up -d`).
-
-- [ ] **Passo 5: Telas de "esqueci" e "redefinir"**
-
-Antes de escrever, confira na versão instalada o nome do método do cliente:
-
-```bash
-grep -rho "requestPasswordReset\|forgetPassword" node_modules/better-auth/dist | sort | uniq -c
-```
-
-Use `requestPasswordReset` se ele existir. Se não existir, troque por `forgetPassword` (mesmos parâmetros).
-
-Criar `src/app/(auth)/esqueci-senha/page.tsx`:
-
-```tsx
-import { ForgotPasswordForm } from "./ForgotPasswordForm";
-
-export default function EsqueciSenhaPage() {
-  return <ForgotPasswordForm />;
-}
-```
-
-Criar `src/app/(auth)/esqueci-senha/ForgotPasswordForm.tsx`:
-
-```tsx
-"use client";
-
-import Link from "next/link";
-import { useState } from "react";
-import { TextField } from "@/components/TextField";
-import { authClient } from "@/lib/auth-client";
-
-export function ForgotPasswordForm() {
-  const [sent, setSent] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
-
-  async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const email = String(new FormData(event.currentTarget).get("email")).trim();
-    setPending(true);
-    setError(null);
-    try {
-      const { error } = await authClient.requestPasswordReset({ email, redirectTo: "/redefinir-senha" });
-      if (error?.status === 429) setError("Muitas tentativas. Aguarde um minuto e tente de novo.");
-      else if (error && !error.status) setError("Sem conexão. Verifique sua internet.");
-      else setSent(true); // mesma resposta exista ou não a conta
-    } catch {
-      setError("Sem conexão. Verifique sua internet.");
-    } finally {
-      setPending(false);
-    }
-  }
-
-  if (sent) {
-    return (
-      <div className="space-y-4">
-        <h1 className="text-xl font-semibold">Verifique seu e-mail</h1>
-        <p className="text-sm text-neutral-300">Se o e-mail existir, enviamos o link.</p>
-        <Link href="/entrar" className="text-sm text-red-400 underline">
-          Voltar para o login
-        </Link>
-      </div>
-    );
-  }
-
-  return (
-    <form onSubmit={onSubmit} className="space-y-4">
-      <h1 className="text-xl font-semibold">Esqueci minha senha</h1>
-      <p className="text-sm text-neutral-400">Informe seu e-mail e enviaremos um link para criar uma nova senha.</p>
-      <TextField label="E-mail" name="email" type="email" autoComplete="email" required />
-      {error && (
-        <p role="alert" className="text-sm text-red-400">
-          {error}
-        </p>
-      )}
-      <button type="submit" disabled={pending} className="w-full rounded-md bg-red-600 py-2 font-medium text-white disabled:opacity-60">
-        {pending ? "Enviando..." : "Enviar link"}
-      </button>
-      <p className="text-center text-sm">
-        <Link href="/entrar" className="text-red-400 underline">
-          Voltar para o login
-        </Link>
-      </p>
-    </form>
-  );
-}
-```
-
-Criar `src/app/(auth)/redefinir-senha/page.tsx`:
-
-```tsx
-import { ResetPasswordForm } from "./ResetPasswordForm";
-
-export default async function RedefinirSenhaPage({ searchParams }: { searchParams: Promise<{ token?: string; error?: string }> }) {
-  const { token, error } = await searchParams;
-  return <ResetPasswordForm token={error ? null : (token ?? null)} />;
-}
-```
-
-Criar `src/app/(auth)/redefinir-senha/ResetPasswordForm.tsx`:
-
-```tsx
-"use client";
-
-import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { TextField } from "@/components/TextField";
-import { authClient } from "@/lib/auth-client";
-
-function InvalidLink() {
-  return (
-    <div className="space-y-4">
-      <h1 className="text-xl font-semibold">Redefinir senha</h1>
-      <p role="alert" className="text-sm text-red-400">
-        Link inválido ou expirado.
-      </p>
-      <Link href="/esqueci-senha" className="text-sm text-red-400 underline">
-        Pedir um novo link
-      </Link>
-    </div>
-  );
-}
-
-export function ResetPasswordForm({ token }: { token: string | null }) {
-  const router = useRouter();
-  const [error, setError] = useState<string | null>(null);
-  const [invalid, setInvalid] = useState(token === null);
-  const [pending, setPending] = useState(false);
-
-  async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!token) return;
-    const form = new FormData(event.currentTarget);
-    const newPassword = String(form.get("password"));
-    if (newPassword.length < 8) return setError("A senha precisa ter pelo menos 8 caracteres.");
-    if (newPassword !== String(form.get("confirm"))) return setError("As senhas não são iguais.");
-    setPending(true);
-    setError(null);
-    try {
-      const { error } = await authClient.resetPassword({ newPassword, token });
-      if (error) {
-        if (!error.status) setError("Sem conexão. Verifique sua internet.");
-        else setInvalid(true);
-        return;
-      }
-      router.replace("/entrar?senha=redefinida");
-    } catch {
-      setError("Sem conexão. Verifique sua internet.");
-    } finally {
-      setPending(false);
-    }
-  }
-
-  if (invalid || !token) return <InvalidLink />;
-
-  return (
-    <form onSubmit={onSubmit} className="space-y-4">
-      <h1 className="text-xl font-semibold">Criar nova senha</h1>
-      <TextField label="Nova senha" name="password" type="password" autoComplete="new-password" minLength={8} required />
-      <TextField label="Confirmar nova senha" name="confirm" type="password" autoComplete="new-password" minLength={8} required />
-      {error && (
-        <p role="alert" className="text-sm text-red-400">
-          {error}
-        </p>
-      )}
-      <button type="submit" disabled={pending} className="w-full rounded-md bg-red-600 py-2 font-medium text-white disabled:opacity-60">
-        {pending ? "Salvando..." : "Salvar nova senha"}
-      </button>
-    </form>
-  );
-}
-```
-
-- [ ] **Passo 6: Ajustes no login**
-
-Em `src/app/(auth)/entrar/page.tsx`, trocar o tipo e o corpo para ler `senha`:
-
-```tsx
-export default async function EntrarPage({ searchParams }: { searchParams: Promise<{ volta?: string; senha?: string }> }) {
-  const { volta, senha } = await searchParams;
-  const returnTo = safeReturnPath(volta);
-  if (await getSession()) redirect(returnTo);
-  return <LoginForm returnTo={returnTo} passwordReset={senha === "redefinida"} />;
-}
-```
-
-Em `src/app/(auth)/entrar/LoginForm.tsx`:
-- mudar a assinatura para `export function LoginForm({ returnTo, passwordReset = false }: { returnTo: string; passwordReset?: boolean }) {`;
-- logo abaixo do `<h1>`, adicionar:
-
-```tsx
-      {passwordReset && <p role="status" className="text-sm text-green-400">Senha alterada. Entre com a nova senha.</p>}
-```
-
-- logo abaixo do campo "Senha", adicionar:
-
-```tsx
-      <p className="text-right text-sm">
-        <Link href="/esqueci-senha" className="text-neutral-400 underline">
-          Esqueci minha senha
-        </Link>
-      </p>
-```
-
-- [ ] **Passo 7: Rodar todos os testes**
-
-```bash
-docker compose up -d
-npm test
-npm run test:e2e
-```
-
-Esperado: todos PASSAM.
-
-- [ ] **Passo 8: Conferir no navegador**
-
-Com `npm run dev`, peça a redefinição para a sua conta. Abra http://localhost:8025, clique no e-mail e siga o link.
-
-- [ ] **Passo 9: Commit e push**
-
-```bash
-git add -A
-git commit -m "feat: esqueci minha senha com e-mail via Mailpit
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
-git push
-```
-
----
-
-### Tarefa 10: Docker de produção, créditos e README
-
-**Arquivos:**
-- Criar: `Dockerfile`, `.dockerignore`, `src/components/Credits.tsx`, `README.md`
-- Modificar: `next.config.ts`, `docker-compose.yml`, `docker-compose.override.yml`, `src/app/(auth)/layout.tsx`, `src/app/(app)/conta/page.tsx`
+- Criar: `README.md`
+- Modificar: `.env.example` (comentários finais, se necessário)
 
 **Interfaces:**
 - Consome: tudo das tarefas anteriores.
-- Produz: a imagem Docker do app, o serviço `app` no compose e o componente `<Credits />`.
+- Produz: o README e a verificação final em produção.
 
-- [ ] **Passo 1: Créditos (TMDB e JustWatch)**
-
-Criar `src/components/Credits.tsx`:
-
-```tsx
-export function Credits() {
-  return (
-    <footer className="space-y-1 text-center text-xs text-neutral-500">
-      <p>
-        Este produto usa a API do{" "}
-        <a href="https://www.themoviedb.org" target="_blank" rel="noopener noreferrer" className="underline">
-          TMDB
-        </a>
-        , mas não é endossado nem certificado pelo TMDB.
-      </p>
-      <p>
-        Dados de onde assistir fornecidos pela{" "}
-        <a href="https://www.justwatch.com" target="_blank" rel="noopener noreferrer" className="underline">
-          JustWatch
-        </a>
-        .
-      </p>
-    </footer>
-  );
-}
-```
-
-Em `src/app/(auth)/layout.tsx`:
-- adicionar o import `import { Credits } from "@/components/Credits";`;
-- logo depois do `<div className="w-full max-w-sm ...">...</div>`, adicionar `<div className="mt-6 max-w-sm"><Credits /></div>`.
-
-Em `src/app/(app)/conta/page.tsx`:
-- adicionar o import `import { Credits } from "@/components/Credits";`;
-- depois de `<SignOutButton />`, adicionar `<Credits />`.
-
-Adicionar um teste em `tests/e2e/auth.spec.ts`:
-
-```ts
-test("créditos do TMDB e da JustWatch aparecem", async ({ page }) => {
-  await page.goto("/entrar");
-  await expect(page.getByText("mas não é endossado nem certificado pelo TMDB")).toBeVisible();
-  await expect(page.getByText(/Dados de onde assistir fornecidos pela/)).toBeVisible();
-});
-```
-
-- [ ] **Passo 2: Imagem Docker**
-
-Em `next.config.ts`, adicionar `output: "standalone"` ao objeto de configuração:
-
-```ts
-import type { NextConfig } from "next";
-
-const nextConfig: NextConfig = {
-  output: "standalone",
-};
-
-export default nextConfig;
-```
-
-Criar `.dockerignore`:
-
-```
-.git
-node_modules
-.next
-.env
-.env.*
-!.env.example
-arquivos
-docs
-tests
-test-results
-playwright-report
-```
-
-Criar `Dockerfile`:
-
-```dockerfile
-FROM node:22-alpine AS deps
-WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci
-
-FROM node:22-alpine AS build
-WORKDIR /app
-ENV NEXT_TELEMETRY_DISABLED=1
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
-RUN npm run build
-
-FROM node:22-alpine AS runner
-WORKDIR /app
-ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=0.0.0.0 PORT=3000
-COPY --from=build --chown=node:node /app/.next/standalone ./
-COPY --from=build --chown=node:node /app/.next/static ./.next/static
-COPY --from=build --chown=node:node /app/public ./public
-COPY --from=build --chown=node:node /app/drizzle ./drizzle
-USER node
-EXPOSE 3000
-CMD ["node", "server.js"]
-```
-
-- [ ] **Passo 3: Serviço `app` no compose**
-
-Em `docker-compose.yml`, adicionar dentro de `services:`:
-
-```yaml
-  app:
-    build: .
-    env_file: .env
-    environment:
-      DATABASE_URL: postgres://app:${POSTGRES_PASSWORD}@db:5432/claude_nextjs
-    ports:
-      - "127.0.0.1:3000:3000"
-    depends_on:
-      db:
-        condition: service_healthy
-    restart: unless-stopped
-```
-
-Em `docker-compose.override.yml`, adicionar dentro de `services:` (em desenvolvimento o app no container manda e-mail pelo Mailpit):
-
-```yaml
-  app:
-    environment:
-      SMTP_HOST: mailpit
-      SMTP_PORT: "1025"
-    depends_on:
-      - mailpit
-```
-
-- [ ] **Passo 4: Subir tudo em containers e conferir**
+- [ ] **Passo 1: Criar a branch**
 
 ```bash
-docker compose up -d --build
-docker compose ps
-curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3000/entrar
-docker compose logs app --tail 20
+git switch main && git pull && git switch -c tarefa-08-producao
 ```
 
-Esperado: `app`, `db`, `db-test` e `mailpit` rodando, `200` no curl, e nenhum erro de migração no log. Abra http://localhost:3000 e crie uma conta para conferir. Ao terminar, rode `docker compose stop app` para liberar a porta 3000 para o `npm run dev`.
-
-- [ ] **Passo 5: README**
+- [ ] **Passo 2: README**
 
 Criar `README.md`:
 
 ````markdown
 # claude-nextjs
 
-Catálogo dos filmes da Netflix Brasil com listas pessoais ("Quero assistir" e "Favoritos").
-Projeto de estudo de **Claude Code** com **Next.js**, construído como se fosse para produção.
+Catálogo dos filmes da Netflix Brasil, aberto a todos, com listas pessoais ("Quero assistir" e "Favoritos")
+para quem cria conta. Projeto de estudo de **Claude Code** com **Next.js**, **Supabase** e **Vercel**.
 
 ## Stack
 
-Next.js 16 (React 19, TypeScript) · Tailwind CSS 4 · Better Auth · PostgreSQL 17 + Drizzle ORM ·
-Docker Compose · Vitest + Playwright · dados do TMDB.
+Next.js 16 (React 19, TypeScript) · Tailwind CSS 4 · Supabase (Auth + Postgres com RLS) · Vercel ·
+Vitest + Playwright · dados do TMDB.
 
 ## Como rodar
 
 Pré-requisitos: Docker e Node 22.
 
 ```bash
-cp .env.example .env          # preencha TMDB_API_TOKEN, BETTER_AUTH_SECRET e as senhas
 npm install
-docker compose up -d db db-test mailpit
+npx supabase start            # Supabase local em Docker
+cp .env.example .env          # cole a chave do `npx supabase status` e o token do TMDB
 npm run dev                   # http://localhost:3000
 ```
 
-- E-mails de desenvolvimento: http://localhost:8025 (Mailpit)
-- Tudo em containers: `docker compose up -d --build`
+- Painel do Supabase local: http://localhost:54323
+- E-mails de teste: http://localhost:54324
 
 ## Testes
 
 ```bash
 npm test                  # unitários
-npm run test:integration  # com PostgreSQL de teste
-npm run test:e2e          # navegador (TMDB simulado)
+npm run test:integration  # contra o Supabase local (inclui RLS)
+npm run test:e2e          # navegador, TMDB simulado
 ```
 
-## Produção (VPS)
+## Banco
 
-Com Docker instalado na VPS: copie o projeto, crie o `.env` com valores reais (incluindo o SMTP de
-um serviço de e-mail) e rode `docker compose -f docker-compose.yml up -d --build`. O
-`docker-compose.override.yml` (Mailpit e banco de testes) é só para desenvolvimento.
+A estrutura fica em `supabase/migrations/`. Depois de criar uma migração:
+
+```bash
+npx supabase db reset     # aplica no banco local
+npm run db:types          # atualiza os tipos TypeScript
+npx supabase db push      # aplica no Supabase da nuvem
+```
+
+## Deploy
+
+O Vercel publica cada merge na `main` e gera uma prévia para cada PR. As variáveis
+`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `TMDB_API_TOKEN` e `NETFLIX_PROVIDER_IDS`
+ficam em *Settings → Environment Variables*.
+
+Plano gratuito: o Supabase pausa o projeto após cerca de 7 dias sem uso (reativação no painel) e o e-mail
+embutido envia poucas mensagens por hora.
 
 ## Créditos
 
@@ -4594,23 +4432,38 @@ Este produto usa a API do [TMDB](https://www.themoviedb.org), mas não é endoss
 pelo TMDB. Dados de onde assistir fornecidos pela [JustWatch](https://www.justwatch.com).
 ````
 
-- [ ] **Passo 6: Rodar a bateria completa**
+- [ ] **Passo 3: Bateria completa**
 
 ```bash
 npm test
 npm run test:integration
-npm run test:e2e
 npm run lint
+npm run build
+npm run test:e2e
 ```
 
-Esperado: todos PASSAM e o lint fica sem erros.
+Esperado: tudo PASSA.
 
-- [ ] **Passo 7: Commit e push**
+- [ ] **Passo 4: Commit, push e PR**
 
 ```bash
 git add -A
-git commit -m "feat: imagem Docker de produção, créditos do TMDB/JustWatch e README
+git commit -m "docs: README com como rodar, testar e publicar"
+git push -u origin tarefa-08-producao
+gh pr create --base main --head tarefa-08-producao --title "README e verificação final" --body "$(cat <<'EOF'
+## O que muda
+- README: como rodar, testar, mexer no banco e publicar
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
-git push
+## Checklist de produção (fazer na URL de produção depois do merge)
+- [ ] Catálogo abre sem login no celular
+- [ ] Criar conta, salvar um filme, ver em "Minhas listas"
+- [ ] Entrar no notebook com a mesma conta e ver a mesma lista
+- [ ] "Esqueci minha senha" chega por e-mail e o link abre a tela de nova senha
+- [ ] Rodapé de créditos visível em Conta e no modal de login
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+EOF
+)"
 ```
+
+**Pare aqui.** Depois do merge, percorra com o usuário o checklist do PR na URL de produção. Se algo falhar em produção mas passar localmente, a causa mais provável é configuração: as variáveis do Vercel ou a *URL Configuration* e os *Email Templates* do Supabase (Tarefa 5, Passo 11).
