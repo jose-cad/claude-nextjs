@@ -7,6 +7,8 @@ import { apiFetch } from "@/lib/api-client";
 import type { CatalogSort, Genre, MovieSummary } from "@/lib/tmdb/types";
 import { CatalogToolbar } from "./CatalogToolbar";
 import { InfiniteSentinel } from "./InfiniteSentinel";
+import { ListButtons } from "./lists/ListButtons";
+import { useLists } from "./lists/ListsProvider";
 import { MovieGrid } from "./MovieGrid";
 import { MovieModal } from "./MovieModal";
 import { StatusMessage } from "./StatusMessage";
@@ -18,6 +20,7 @@ export function CatalogView() {
   const [sort, setSort] = useState<CatalogSort>("popular");
   const [genres, setGenres] = useState<Genre[]>([]);
   const [selected, setSelected] = useState<MovieSummary | null>(null);
+  const { marksFor } = useLists();
 
   useEffect(() => {
     apiFetch<{ genres: Genre[] }>("/api/generos")
@@ -42,12 +45,12 @@ export function CatalogView() {
         onSortChange={setSort}
         genres={genres}
       />
-      <MovieGrid movies={items} showBadges={searching} onSelect={setSelected} />
+      <MovieGrid movies={items} showBadges={searching} getMarks={marksFor} onSelect={setSelected} />
       {error && <StatusMessage>{error}</StatusMessage>}
       {!error && !loading && items.length === 0 && <StatusMessage>Nenhum filme encontrado.</StatusMessage>}
       {loading && <StatusMessage>Carregando...</StatusMessage>}
       <InfiniteSentinel onVisible={loadMore} disabled={Boolean(error) || loading || !hasMore} watchKey={items.length} />
-      <MovieModal movie={selected} onClose={() => setSelected(null)} />
+      <MovieModal movie={selected} onClose={() => setSelected(null)} actions={(movie) => <ListButtons movie={movie} />} />
     </>
   );
 }

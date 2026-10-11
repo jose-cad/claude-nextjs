@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { AuthProvider } from "@/components/auth/AuthProvider";
+import { ListsProvider } from "@/components/lists/ListsProvider";
 import { NavBar } from "@/components/NavBar";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import "./globals.css";
@@ -19,8 +20,10 @@ async function AuthShell({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthProvider initialUser={user ? { id: user.id, email: user.email ?? "" } : null}>
-      <NavBar />
-      <main className="pb-16 md:pb-0">{children}</main>
+      <ListsProvider>
+        <NavBar />
+        <main className="pb-16 md:pb-0">{children}</main>
+      </ListsProvider>
     </AuthProvider>
   );
 }
