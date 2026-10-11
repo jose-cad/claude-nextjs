@@ -1,0 +1,26 @@
+import { createServerClient } from "@supabase/ssr";
+import { NextResponse, type NextRequest } from "next/server";
+
+/** Renova a sessão do Supabase a cada navegação, antes das páginas lerem o usuário. */
+export async function proxy(request: NextRequest) {
+  let response = NextResponse.next({ request });
+  const supabase = createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!, {
+    cookies: {
+      getAll() {
+        return request.cookies.getAll();
+      },
+      setAll(cookiesToSet) {
+        cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
+        response = NextResponse.next({ request });
+        cookiesToSet.forEach(({ name, value, options }) => response.cookies.set(name, value, options));
+      },
+    },
+  });
+  await supabase.auth.getUser();
+  return response;
+}
+
+export const config = {
+  // pula arquivos estáticos e as rotas públicas do TMDB, que não usam sessão
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/catalogo|api/busca|api/generos|api/filmes|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
+};

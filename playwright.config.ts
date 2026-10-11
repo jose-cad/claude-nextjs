@@ -30,6 +30,9 @@ export default defineConfig({
         TMDB_API_TOKEN: "test-token",
         TMDB_BASE_URL: "http://localhost:4010/3",
         NETFLIX_PROVIDER_IDS: "8",
+        // os testes criam contas: sempre no Supabase local, mesmo que o .env aponte para a nuvem
+        NEXT_PUBLIC_SUPABASE_URL: "http://localhost:54321",
+        NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH", // chave pública padrão do Supabase local
       },
     },
   ],
