@@ -10,7 +10,9 @@
     "test": "vitest run",
     "db:start": "supabase start",
     "db:stop": "supabase stop",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "db:types": "supabase gen types typescript --local > src/lib/supabase/database.types.ts",
+    "test:integration": "vitest run --config vitest.integration.config.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
